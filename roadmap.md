@@ -1,73 +1,73 @@
-# MONTI – Development Roadmap ✅
+# MONTI – Development Roadmap
 
-Dieses Dokument beschreibt den groben Entwicklungsplan für **MONTI**, die Live-Monitoring-App für Callcenter.
-
----
-
-## 1️⃣ Projekt Setup
-- [ ] GitHub Repo anlegen (privat)  
-- [ ] Go Backend Projekt initialisieren  
-- [ ] Frontend WebApp (React / Astro / Next.js) initialisieren  
-- [ ] GitHub Actions Workflow Grundgerüst für CI/CD anlegen  
+This document describes the rough development plan for **MONTI**, the live monitoring app for call centers.
 
 ---
 
-## 2️⃣ Auth & Zugriff
-- [ ] AWS IAM Identity Center konfigurieren (intern)  
-- [ ] OIDC Integration für WebApp + Backend  
-- [ ] JWT-Claims Mapping (Groups → Roles)  
-- [ ] Backend Middleware: Zugriff prüfen (`can(user, action)`)  
+## 1️⃣ Project Setup
+- [ ] Create GitHub repo (private)
+- [ ] Initialize Go backend project
+- [ ] Initialize frontend WebApp (React / Astro / Next.js)
+- [ ] Create basic GitHub Actions workflow structure for CI/CD
 
 ---
 
-## 3️⃣ Datenmodell & Simulation
-- [ ] Datenbank Schema (Agents, Teams, Standorte, Status)  
-- [ ] Cache-Struktur (Redis oder In-Memory)  
-- [ ] Fake Agent Generator (2000 Agents, random Teams/Standorte)  
-- [ ] API Endpoints zum Streamen der Daten  
+## 2️⃣ Auth & Access
+- [ ] Configure AWS IAM Identity Center (internal)
+- [ ] OIDC integration for WebApp + Backend
+- [ ] JWT claims mapping (Groups → Roles)
+- [ ] Backend middleware: Check access (`can(user, action)`)
+
+---
+
+## 3️⃣ Data Model & Simulation
+- [ ] Database schema (Agents, Teams, Locations, Status)
+- [ ] Cache structure (Redis or in-memory)
+- [ ] Fake agent generator (2000 agents, random teams/locations)
+- [ ] API endpoints for streaming data
 
 ---
 
 ## 4️⃣ Backend Core
-- [ ] WebSocket Service für Live Updates  
-- [ ] Aggregation & Gruppierung im Cache  
-- [ ] REST/GraphQL Endpoints für initiale Daten  
-- [ ] Performance Tests mit 2000 Agents  
+- [ ] WebSocket service for live updates
+- [ ] Aggregation & grouping in cache
+- [ ] REST/GraphQL endpoints for initial data
+- [ ] Performance tests with 2000 agents
 
 ---
 
 ## 5️⃣ Frontend
-- [ ] Dashboard Grundlayout (Teams, Standorte, Status)  
-- [ ] WebSocket Client implementieren  
-- [ ] Gruppierte Darstellung der Agents  
-- [ ] Filter & Sortierung nach Teams / Standorten  
+- [ ] Dashboard basic layout (Teams, Locations, Status)
+- [ ] Implement WebSocket client
+- [ ] Grouped display of agents
+- [ ] Filter & sorting by teams / locations
 
 ---
 
-## 6️⃣ Infrastruktur & Deployment
-- [ ] Terraform Projektstruktur anlegen (VPC, IAM, DB, ECS/Lambda)  
-- [ ] Remote State Setup (S3 + DynamoDB)  
-- [ ] CI/CD Pipeline: Build, Test, Docker Image, Deploy  
-- [ ] Staging Environment testen  
+## 6️⃣ Infrastructure & Deployment
+- [ ] Create Terraform project structure (VPC, IAM, DB, ECS/Lambda)
+- [ ] Remote state setup (S3 + DynamoDB)
+- [ ] CI/CD pipeline: Build, Test, Docker Image, Deploy
+- [ ] Test staging environment
 
 ---
 
-## 7️⃣ Optimierung & Monitoring
-- [ ] Performance-Messungen (CPU, RAM, WebSocket Traffic)  
-- [ ] Logging & Metrics (CloudWatch / Prometheus)  
-- [ ] Optimierung Cache / Gruppierung / WebSocket Payload  
+## 7️⃣ Optimization & Monitoring
+- [ ] Performance measurements (CPU, RAM, WebSocket traffic)
+- [ ] Logging & metrics (CloudWatch / Prometheus)
+- [ ] Optimize cache / grouping / WebSocket payload
 
 ---
 
 ## 8️⃣ Launch & Internal Rollout
-- [ ] User Accounts / Roles definieren  
-- [ ] Testzugriff auf Dashboard für Team  
-- [ ] Feedback sammeln & kleine Anpassungen  
-- [ ] Final Deployment für alle internen Nutzer  
+- [ ] Define user accounts / roles
+- [ ] Test access to dashboard for team
+- [ ] Collect feedback & make minor adjustments
+- [ ] Final deployment for all internal users
 
 ---
 
-> 💡 **Tipp:**  
-> - Beginne mit **Backend + Fake Agents + Cache**, dann WebSocket, danach Frontend.  
-> - IAM Identity Center Integration frühzeitig, sonst musst du später alles ändern.  
-> - Terraform & CI/CD parallel aufsetzen, nicht erst am Ende.
+> 💡 **Tip:**
+> - Start with **Backend + Fake Agents + Cache**, then WebSocket, then Frontend.
+> - IAM Identity Center integration early on, otherwise you'll have to change everything later.
+> - Set up Terraform & CI/CD in parallel, not at the end.

@@ -1,44 +1,44 @@
-# Projekt MONTI
+# Project MONTI
 
-**MONTI** ist eine Live-Monitoring-App, speziell entwickelt für Callcenter.
+**MONTI** is a live monitoring app, specifically developed for call centers.
 
-## Ziel
-Die App soll eine **hohe Performance** liefern und **über 2000 Agents live** darstellen können.
+## Goal
+The app should deliver **high performance** and be able to display **over 2000 agents live**.
 
-## Architektur
-- **Frontend:** WebApp für optimale Usability  
-- **Backend:** Go  
-- **Daten:** Simulation von 2000 Fake-Agents aus unterschiedlichen Teams und Standorten  
+## Architecture
+- **Frontend:** WebApp for optimal usability
+- **Backend:** Go
+- **Data:** Simulation of 2000 fake agents from different teams and locations
 
-## Datenverarbeitung
-- Alle Agent-Daten werden in einer **Datenbank** gespeichert  
-- Gleichzeitig werden sie in einem **Cache** gesammelt und gruppiert  
-- Die WebApp erhält nur **gefilterte Gruppierungen**, statt einzelner Agents, um die Performance zu sichern  
-- WebSocket-Anfragen werden dadurch **reduziert**, die App bleibt performant
+## Data Processing
+- All agent data is stored in a **database**
+- Simultaneously, data is collected and grouped in a **cache**
+- The WebApp receives only **filtered groupings** instead of individual agents to ensure performance
+- WebSocket requests are thereby **reduced**, keeping the app performant
 
-## Authentifizierung & Sicherheit
-- **AWS Identity Center** zentral für Authentifizierung  
-- Zugriff auf Daten wird **mandanten- und standortbasiert** gesteuert  
-- Kein externer Zugriff ohne gültige Identity
+## Authentication & Security
+- **AWS Identity Center** centrally for authentication
+- Data access is controlled **tenant- and location-based**
+- No external access without valid identity
 
 ## CI/CD
-- Repository auf **GitHub** → Verwendung von **GitHub Actions** für Continuous Integration und Deployment  
-- Workflow umfasst:
-  - Build & Lint des Go-Backends  
-  - Testen aller Komponenten  
-  - Erstellung von Docker-Images (optional)  
-  - Deployment zu AWS (Lambda / ECS / EC2)  
-- Terraform-Infrastruktur kann ebenfalls über GitHub Actions verwaltet werden
+- Repository on **GitHub** → Using **GitHub Actions** for Continuous Integration and Deployment
+- Workflow includes:
+  - Build & Lint of Go backend
+  - Testing all components
+  - Creating Docker images (optional)
+  - Deployment to AWS (Lambda / ECS / EC2)
+- Terraform infrastructure can also be managed via GitHub Actions
 
-## Infrastruktur
-- Bereitstellung der Cloud-Ressourcen über **Terraform**  
-- Vorteile:
-  - Modular & wiederverwendbar (Module für VPC, DB, IAM, ECS/Lambda)  
-  - Multi-Cloud-fähig, falls zukünftig nötig  
-  - Remote State Management (S3 + DynamoDB)  
-  - Einfache CI/CD Integration via GitHub Actions  
-- Ressourcen, die über Terraform verwaltet werden:
-  - **IAM Identity Center** für Auth & Zugriffsrechte  
-  - **Backend Infrastruktur** (Lambda / ECS / EC2)  
-  - **Datenbank & Cache** (RDS / DynamoDB / Redis)  
-  - **Netzwerk & Security** (VPC, Subnets, Security Groups)
+## Infrastructure
+- Provisioning of cloud resources via **Terraform**
+- Advantages:
+  - Modular & reusable (modules for VPC, DB, IAM, ECS/Lambda)
+  - Multi-cloud capable, if needed in the future
+  - Remote State Management (S3 + DynamoDB)
+  - Easy CI/CD integration via GitHub Actions
+- Resources managed via Terraform:
+  - **IAM Identity Center** for auth & access rights
+  - **Backend Infrastructure** (Lambda / ECS / EC2)
+  - **Database & Cache** (RDS / DynamoDB / Redis)
+  - **Network & Security** (VPC, Subnets, Security Groups)
