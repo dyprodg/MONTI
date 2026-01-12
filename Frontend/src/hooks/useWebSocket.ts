@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { getWebSocketService } from '../services/websocket'
 import { ConnectionState, TimeMessage, WebSocketError } from '../types'
+import { authService } from '../services/auth'
 
 interface UseWebSocketReturn {
   data: TimeMessage | null
@@ -15,10 +16,19 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.CLOSED)
   const [error, setError] = useState<WebSocketError | null>(null)
   const wsServiceRef = useRef<ReturnType<typeof getWebSocketService> | null>(null)
+  const [wsInitialized, setWsInitialized] = useState(false)
 
-  // Initialize WebSocket service
+  // Initialize WebSocket service with auth token
   useEffect(() => {
-    wsServiceRef.current = getWebSocketService(url)
+    const initWebSocket = async () => {
+      const token = await authService.getToken()
+      const wsUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url
+      console.log('[WebSocket] Initializing with token:', token ? 'present' : 'missing')
+      wsServiceRef.current = getWebSocketService(wsUrl)
+      setWsInitialized(true)
+    }
+
+    initWebSocket()
   }, [url])
 
   // Connect function
@@ -35,8 +45,10 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
     }
   }, [])
 
-  // Set up event listeners
+  // Set up event listeners - only run after WebSocket is initialized
   useEffect(() => {
+    if (!wsInitialized) return
+
     const ws = wsServiceRef.current
     if (!ws) return
 
@@ -69,7 +81,7 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
       unsubscribeError()
       disconnect()
     }
-  }, [connect, disconnect])
+  }, [wsInitialized, connect, disconnect])
 
   return {
     data,

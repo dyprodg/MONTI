@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/auth"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
 	"github.com/dennisdiepolder/monti/backend/internal/ticker"
 	"github.com/dennisdiepolder/monti/backend/internal/websocket"
@@ -67,9 +68,14 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 
-	// Register routes
+	// Register public routes (no auth required)
 	r.Get("/health", healthHandler)
-	r.Get("/ws", wsHandler.ServeHTTP)
+
+	// Add auth middleware for protected routes
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Middleware)
+		r.Get("/ws", wsHandler.ServeHTTP)
+	})
 
 	// Create HTTP server
 	srv := &http.Server{

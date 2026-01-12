@@ -5,10 +5,10 @@ This document describes the rough development plan for **MONTI**, the live monit
 ---
 
 ## 1️⃣ Project Setup
-- [ ] Create GitHub repo (private)
-- [ ] Initialize Go backend project
-- [ ] Initialize frontend WebApp (React / Astro / Next.js)
-- [ ] Create basic GitHub Actions workflow structure for CI/CD
+- [x] Create GitHub repo (private)
+- [x] Initialize Go backend project
+- [x] Initialize frontend WebApp (Vite)
+- [x] Create basic GitHub Actions workflow structure for CI/CD
 
 ---
 

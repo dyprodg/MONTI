@@ -1,98 +1,83 @@
-import { useWebSocket } from './hooks/useWebSocket'
-import { ConnectionStatus } from './components/ConnectionStatus'
-import { TimeDisplay } from './components/TimeDisplay'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { Login } from './pages/Login'
+import { Callback } from './pages/Callback'
+import { Dashboard } from './pages/Dashboard'
+import { ReactNode } from 'react'
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws'
+const ProtectedRoute = ({ children }: { children: ReactNode }) => {
+  const { isAuthenticated, loading } = useAuth()
 
-function App() {
-  const { data, connectionState, error } = useWebSocket(WS_URL)
-
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: '#f9fafb',
-        padding: '32px',
-      }}
-    >
+  if (loading) {
+    return (
       <div
         style={{
-          maxWidth: '800px',
-          margin: '0 auto',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#f9fafb',
         }}
       >
-        {/* Header */}
         <div
           style={{
-            marginBottom: '32px',
+            backgroundColor: 'white',
+            padding: '32px',
+            borderRadius: '12px',
+            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
             textAlign: 'center',
           }}
         >
-          <h1
-            style={{
-              fontSize: '36px',
-              fontWeight: '700',
-              color: '#111827',
-              marginBottom: '8px',
-            }}
-          >
-            MONTI
-          </h1>
-          <p
-            style={{
-              fontSize: '16px',
-              color: '#6b7280',
-            }}
-          >
-            Live Call Center Monitoring
-          </p>
-        </div>
-
-        {/* Connection Status */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            marginBottom: '32px',
-          }}
-        >
-          <ConnectionStatus state={connectionState} />
-        </div>
-
-        {/* Error Display */}
-        {error && (
           <div
             style={{
-              padding: '16px',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
-              borderRadius: '8px',
-              marginBottom: '24px',
-              color: '#991b1b',
+              width: '48px',
+              height: '48px',
+              border: '4px solid #e5e7eb',
+              borderTop: '4px solid #3b82f6',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 16px',
             }}
-          >
-            <strong>Error:</strong> {error.message}
-          </div>
-        )}
-
-        {/* Time Display */}
-        <TimeDisplay data={data} />
-
-        {/* Footer */}
-        <div
-          style={{
-            marginTop: '48px',
-            textAlign: 'center',
-            fontSize: '14px',
-            color: '#9ca3af',
-          }}
-        >
-          <p>
-            WebSocket Demo - Time updates every second
-          </p>
+          />
+          <p style={{ color: '#6b7280', fontSize: '16px' }}>Loading...</p>
+          <style>
+            {`
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}
+          </style>
         </div>
       </div>
-    </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/callback" element={<Callback />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 

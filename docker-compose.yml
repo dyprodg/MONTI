@@ -1,6 +1,22 @@
-version: '3.9'
-
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: monti-keycloak
+    command: start-dev
+    ports:
+      - "8180:8180"
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HTTP_PORT=8180
+      - KC_HOSTNAME=localhost
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HTTP_RELATIVE_PATH=/
+    networks:
+      - monti-network
+    restart: unless-stopped
+
   backend:
     build:
       context: ./Backend
@@ -17,8 +33,15 @@ services:
       - LOG_LEVEL=debug
       - WS_READ_TIMEOUT=60
       - WS_WRITE_TIMEOUT=10
+      - ENV=development
+      - OIDC_ISSUER=http://keycloak:8180/realms/monti
+      - OIDC_CLIENT_ID=monti-app
+      - OIDC_AUDIENCE=monti-app
+      - SKIP_AUTH=false
     networks:
       - monti-network
+    depends_on:
+      - keycloak
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -38,14 +61,15 @@ services:
       - ./Frontend:/app
       - /app/node_modules  # Anonymous volume to prevent overwriting
     environment:
-      # Use the backend service name for container-to-container communication
-      # But since Vite runs in the browser, we need to use localhost
       - VITE_WS_URL=ws://localhost:8080/ws
+      - VITE_API_URL=http://localhost:8080/api
+      - VITE_OIDC_ISSUER=http://localhost:8180/realms/monti
+      - VITE_OIDC_CLIENT_ID=monti-app
+      - VITE_OIDC_REDIRECT_URI=http://localhost:5173/callback
     networks:
       - monti-network
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
