@@ -28,6 +28,8 @@ export class WebSocketService {
       return
     }
 
+    // Reset reconnect flag when explicitly connecting
+    this.shouldReconnect = true
     this.updateState(ConnectionState.CONNECTING)
 
     try {

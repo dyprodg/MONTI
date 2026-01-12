@@ -48,6 +48,10 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
     // State change handler
     const unsubscribeState = ws.onStateChange((state) => {
       setConnectionState(state)
+      // Clear error when connection is successful
+      if (state === ConnectionState.OPEN) {
+        setError(null)
+      }
     })
 
     // Error handler
