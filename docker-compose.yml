@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile.dev
+    container_name: monti-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Backend:/app
+      - backend-go-cache:/go/pkg/mod
+    environment:
+      - PORT=8080
+      - ALLOWED_ORIGINS=http://localhost:5173
+      - LOG_LEVEL=debug
+      - WS_READ_TIMEOUT=60
+      - WS_WRITE_TIMEOUT=10
+    networks:
+      - monti-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    container_name: monti-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules  # Anonymous volume to prevent overwriting
+    environment:
+      # Use the backend service name for container-to-container communication
+      # But since Vite runs in the browser, we need to use localhost
+      - VITE_WS_URL=ws://localhost:8080/ws
+    networks:
+      - monti-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  monti-network:
+    driver: bridge
+
+volumes:
+  backend-go-cache:

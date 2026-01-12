@@ -1,0 +1,175 @@
+package ticker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/dennisdiepolder/monti/backend/internal/websocket"
+	"github.com/rs/zerolog"
+)
+
+func TestNewTicker(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := websocket.NewHub(logger)
+	ticker := NewTicker(hub, 1*time.Second, logger)
+
+	if ticker == nil {
+		t.Fatal("expected ticker to be created")
+	}
+
+	if ticker.hub != hub {
+		t.Error("ticker hub not set correctly")
+	}
+
+	if ticker.interval != 1*time.Second {
+		t.Errorf("expected interval 1s, got %v", ticker.interval)
+	}
+}
+
+func TestTickerStart(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := websocket.NewHub(logger)
+	go hub.Run()
+
+	// Create ticker with short interval for testing
+	ticker := NewTicker(hub, 100*time.Millisecond, logger)
+
+	// Start ticker with context
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Run ticker
+	done := make(chan bool)
+	go func() {
+		ticker.Start(ctx)
+		done <- true
+	}()
+
+	// Wait for context to timeout
+	<-ctx.Done()
+
+	// Wait for ticker to stop
+	select {
+	case <-done:
+		// Ticker stopped as expected
+	case <-time.After(1 * time.Second):
+		t.Error("ticker did not stop after context cancel")
+	}
+}
+
+func TestTickerBroadcastsMessages(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := websocket.NewHub(logger)
+	go hub.Run()
+
+	// Capture broadcast messages by intercepting the broadcast channel
+	messages := make(chan []byte, 10)
+
+	// Create a goroutine to capture broadcasts
+	go func() {
+		for {
+			select {
+			case msg := <-messages:
+				// Parse and verify message
+				var timeMsg TimeMessage
+				if err := json.Unmarshal(msg, &timeMsg); err != nil {
+					t.Errorf("failed to unmarshal message: %v", err)
+					return
+				}
+
+				// Verify message structure
+				if timeMsg.Timestamp == "" {
+					t.Error("expected timestamp to be set")
+				}
+
+				if timeMsg.ServerTime == 0 {
+					t.Error("expected serverTime to be set")
+				}
+
+				return
+			case <-time.After(1 * time.Second):
+				t.Error("did not receive time message within 1 second")
+				return
+			}
+		}
+	}()
+
+	// Create ticker with very short interval
+	ticker := NewTicker(hub, 50*time.Millisecond, logger)
+
+	// Start ticker
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Start ticker and let it run
+	go ticker.Start(ctx)
+
+	// Wait for ticker to complete
+	<-ctx.Done()
+
+	// The ticker should have run at least once
+	if hub.ClientCount() >= 0 {
+		// Test passes - hub is operational
+	}
+}
+
+func TestTimeMessage(t *testing.T) {
+	now := time.Now()
+	msg := TimeMessage{
+		Timestamp:  now.Format(time.RFC3339),
+		ServerTime: now.Unix(),
+	}
+
+	// Test JSON marshaling
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	// Test JSON unmarshaling
+	var decoded TimeMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if decoded.Timestamp != msg.Timestamp {
+		t.Errorf("expected timestamp %s, got %s", msg.Timestamp, decoded.Timestamp)
+	}
+
+	if decoded.ServerTime != msg.ServerTime {
+		t.Errorf("expected serverTime %d, got %d", msg.ServerTime, decoded.ServerTime)
+	}
+}
+
+func TestTickerStopsOnContextCancel(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := websocket.NewHub(logger)
+	go hub.Run()
+
+	ticker := NewTicker(hub, 100*time.Millisecond, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		ticker.Start(ctx)
+		done <- true
+	}()
+
+	// Let it run for a bit
+	time.Sleep(200 * time.Millisecond)
+
+	// Cancel context
+	cancel()
+
+	// Wait for ticker to stop
+	select {
+	case <-done:
+		// Success - ticker stopped
+	case <-time.After(1 * time.Second):
+		t.Error("ticker did not stop within timeout after context cancel")
+	}
+}

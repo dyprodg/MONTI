@@ -1,0 +1,31 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+monti-backend
+
+# Test files
+*_test.go
+*.test
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go
+vendor/
+*.mod.sum
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tmp
+tmp/
