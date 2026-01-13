@@ -1,17 +1,45 @@
 import { useWebSocket } from '../hooks/useWebSocket'
 import { ConnectionStatus } from '../components/ConnectionStatus'
-import { TimeDisplay } from '../components/TimeDisplay'
+import { WidgetDisplay } from '../components/WidgetDisplay'
 import { useAuth } from '../contexts/AuthContext'
+import { Widget } from '../types'
+import { useState, useEffect } from 'react'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws'
 
 export const Dashboard = () => {
   const { data, connectionState, error } = useWebSocket(WS_URL)
   const { user, logout } = useAuth()
+  const [widgets, setWidgets] = useState<Map<string, Widget>>(new Map())
+
+  // Handle incoming WebSocket messages
+  useEffect(() => {
+    if (!data) return
+
+    // Check if the message is a widget
+    const message = data as any
+    if (message.type && (message.type === 'global_overview' || message.type === 'department_overview')) {
+      const widget = message as Widget
+      setWidgets((prev) => {
+        const newWidgets = new Map(prev)
+        // Use type + department as key to ensure we only keep the latest of each
+        const key = widget.type === 'global_overview' ? 'global' : widget.department!
+        newWidgets.set(key, widget)
+        return newWidgets
+      })
+    }
+  }, [data])
 
   const handleLogout = async () => {
     await logout()
   }
+
+  // Sort widgets: global first, then departments alphabetically
+  const sortedWidgets = Array.from(widgets.values()).sort((a, b) => {
+    if (a.type === 'global_overview') return -1
+    if (b.type === 'global_overview') return 1
+    return (a.department || '').localeCompare(b.department || '')
+  })
 
   return (
     <div
@@ -23,7 +51,7 @@ export const Dashboard = () => {
     >
       <div
         style={{
-          maxWidth: '800px',
+          maxWidth: '1400px',
           margin: '0 auto',
         }}
       >
@@ -134,20 +162,78 @@ export const Dashboard = () => {
           </div>
         )}
 
-        {/* Time Display */}
-        <TimeDisplay data={data} />
+        {/* Widgets Display */}
+        {sortedWidgets.length === 0 ? (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '48px',
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '48px',
+                marginBottom: '16px',
+              }}
+            >
+              📊
+            </div>
+            <h3
+              style={{
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#111827',
+                marginBottom: '8px',
+              }}
+            >
+              Waiting for data...
+            </h3>
+            <p
+              style={{
+                color: '#6b7280',
+                fontSize: '14px',
+              }}
+            >
+              Widgets will appear here when agent events are received
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Grid layout for widgets */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
+                gap: '24px',
+              }}
+            >
+              {sortedWidgets.map((widget) => (
+                <WidgetDisplay
+                  key={widget.type === 'global_overview' ? 'global' : widget.department}
+                  widget={widget}
+                />
+              ))}
+            </div>
 
-        {/* Footer */}
-        <div
-          style={{
-            marginTop: '48px',
-            textAlign: 'center',
-            fontSize: '14px',
-            color: '#9ca3af',
-          }}
-        >
-          <p>WebSocket Demo - Time updates every second</p>
-        </div>
+            {/* Stats Footer */}
+            <div
+              style={{
+                marginTop: '32px',
+                textAlign: 'center',
+                fontSize: '14px',
+                color: '#9ca3af',
+              }}
+            >
+              <p>
+                Displaying {sortedWidgets.length} widget{sortedWidgets.length !== 1 ? 's' : ''} •
+                Updated in real-time
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

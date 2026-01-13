@@ -345,3 +345,62 @@ npm test
 - Vitest: https://vitest.dev/
 - React Testing Library: https://testing-library.com/react
 - Testing Best Practices: https://kentcdodds.com/blog/common-mistakes-with-react-testing-library
+
+
+
+
+
+
+
+ Here are the commands to start the entire system:
+
+  Quick Start Commands
+
+  1. Start Backend & Frontend (Docker)
+
+  cd /Users/dennisdiepolder/Documents/Dev/MONTI
+  docker compose up -d backend frontend
+
+  2. Start AgentSim (Standalone)
+
+  cd /Users/dennisdiepolder/Documents/Dev/MONTI/AgentSim
+  ./bin/agentsim --agents 50 --auto-start --active 30 --backend-url http://localhost:8080 --log-level info
+
+  Or run AgentSim in the background:
+  cd /Users/dennisdiepolder/Documents/Dev/MONTI/AgentSim
+  nohup ./bin/agentsim --agents 50 --auto-start --active 30 --backend-url http://localhost:8080 --log-level info > agentsim.log 2>&1 &
+
+  One-Liner to Start Everything
+
+  cd /Users/dennisdiepolder/Documents/Dev/MONTI && \
+  docker compose up -d backend frontend && \
+  cd AgentSim && \
+  nohup ./bin/agentsim --agents 50 --auto-start --active 30 --backend-url http://localhost:8080 --log-level info > agentsim.log 2>&1 &
+
+  Access Points
+
+  - Dashboard: http://localhost:5173/
+  - Backend: http://localhost:8080/health
+  - AgentSim Control: http://localhost:8081/stats
+
+  Stop Everything
+
+  # Stop Docker services
+  cd /Users/dennisdiepolder/Documents/Dev/MONTI
+  docker compose down
+
+  # Stop AgentSim (if running in background)
+  pkill -f agentsim
+
+  Check Status
+
+  # Check Docker services
+  docker ps | grep monti
+
+  # Check AgentSim
+  curl http://localhost:8081/stats
+
+  # Check Backend events
+  curl http://localhost:8080/internal/event/stats
+
+  That's it! Run the one-liner and everything will be up and running. 🚀

@@ -38,7 +38,7 @@ This document describes the rough development plan for **MONTI**, the live monit
 
 ---
 
-## 5️⃣ Frontend
+N## 5️⃣ Frontend
 - [x] Dashboard basic layout
 - [x] Implement WebSocket client
 - [ ] Grouped display of agents

@@ -9,9 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/aggregator"
 	"github.com/dennisdiepolder/monti/backend/internal/auth"
+	"github.com/dennisdiepolder/monti/backend/internal/cache"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
-	"github.com/dennisdiepolder/monti/backend/internal/ticker"
+	"github.com/dennisdiepolder/monti/backend/internal/event"
 	"github.com/dennisdiepolder/monti/backend/internal/websocket"
 	"github.com/dennisdiepolder/monti/backend/pkg/middleware"
 	"github.com/go-chi/chi/v5"
@@ -49,14 +51,26 @@ func main() {
 	hub := websocket.NewHub(log.Logger)
 	go hub.Run()
 
-	// Create and start ticker
-	tickerService := ticker.NewTicker(hub, 1*time.Second, log.Logger)
+	// Create context for services
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go tickerService.Start(ctx)
+
+	// Ticker disabled - now using widget aggregator for all broadcasts
+	// tickerService := ticker.NewTicker(hub, 1*time.Second, log.Logger)
+	// go tickerService.Start(ctx)
 
 	// Create WebSocket handler
 	wsHandler := websocket.NewHandler(hub, cfg, log.Logger)
+
+	// Create event cache
+	eventCache := cache.NewEventCache()
+
+	// Create event receiver
+	eventReceiver := event.NewReceiver(eventCache, log.Logger)
+
+	// Create aggregator
+	aggregatorService := aggregator.NewAggregator(eventCache, hub, log.Logger)
+	go aggregatorService.Start(ctx)
 
 	// Create router
 	r := chi.NewRouter()
@@ -70,6 +84,12 @@ func main() {
 
 	// Register public routes (no auth required)
 	r.Get("/health", healthHandler)
+
+	// Internal routes (no auth - for internal services like AgentSim)
+	r.Route("/internal", func(r chi.Router) {
+		r.Post("/event", eventReceiver.HandleEvent)
+		r.Get("/event/stats", eventReceiver.GetStats)
+	})
 
 	// Add auth middleware for protected routes
 	r.Group(func(r chi.Router) {
