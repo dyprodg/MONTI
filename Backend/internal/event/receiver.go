@@ -15,6 +15,7 @@ import (
 // Receiver handles incoming agent events from AgentSim
 type Receiver struct {
 	cache          *cache.EventCache
+	stateTracker   *cache.AgentStateTracker
 	logger         zerolog.Logger
 	eventsReceived int64
 	lastReceived   time.Time
@@ -22,10 +23,11 @@ type Receiver struct {
 }
 
 // NewReceiver creates a new event receiver
-func NewReceiver(cache *cache.EventCache, logger zerolog.Logger) *Receiver {
+func NewReceiver(cache *cache.EventCache, stateTracker *cache.AgentStateTracker, logger zerolog.Logger) *Receiver {
 	return &Receiver{
-		cache:  cache,
-		logger: logger,
+		cache:        cache,
+		stateTracker: stateTracker,
+		logger:       logger,
 	}
 }
 
@@ -45,6 +47,9 @@ func (r *Receiver) HandleEvent(w http.ResponseWriter, req *http.Request) {
 
 	// Add event to cache
 	r.cache.Add(event)
+
+	// Update agent state tracker
+	r.stateTracker.Update(event)
 
 	// Update stats
 	atomic.AddInt64(&r.eventsReceived, 1)

@@ -1,7 +1,10 @@
-import { Widget, AgentState } from '../types'
+import { Widget, AgentState, AgentInfo } from '../types'
 
 interface WidgetDisplayProps {
   widget: Widget
+  onAgentClick: (agent: AgentInfo) => void
+  selectedState: AgentState | null
+  onStateFilter: (state: AgentState) => void
 }
 
 const STATE_COLORS: Record<AgentState, string> = {
@@ -34,11 +37,40 @@ const STATE_LABELS: Record<AgentState, string> = {
   conference: 'Conference',
 }
 
-export const WidgetDisplay = ({ widget }: WidgetDisplayProps) => {
+// Format duration in seconds to readable format
+const formatDuration = (stateStart: string): string => {
+  const start = new Date(stateStart)
+  const now = new Date()
+  const durationSeconds = Math.floor((now.getTime() - start.getTime()) / 1000)
+
+  if (durationSeconds < 60) {
+    return `${durationSeconds}s`
+  } else if (durationSeconds < 3600) {
+    const minutes = Math.floor(durationSeconds / 60)
+    const seconds = durationSeconds % 60
+    return `${minutes}m ${seconds}s`
+  } else {
+    const hours = Math.floor(durationSeconds / 3600)
+    const minutes = Math.floor((durationSeconds % 3600) / 60)
+    return `${hours}h ${minutes}m`
+  }
+}
+
+export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilter }: WidgetDisplayProps) => {
   const title =
     widget.type === 'global_overview'
       ? 'Global Overview'
       : `${widget.department?.charAt(0).toUpperCase()}${widget.department?.slice(1)} Department`
+
+  const agents = widget.agents || []
+
+  // Sort agents by state, then by agent ID
+  const sortedAgents = [...agents].sort((a, b) => {
+    if (a.state !== b.state) {
+      return a.state.localeCompare(b.state)
+    }
+    return a.agentId.localeCompare(b.agentId)
+  })
 
   const sortedStates = Object.entries(widget.summary.stateBreakdown)
     .filter(([_, count]) => count > 0)
@@ -48,175 +80,248 @@ export const WidgetDisplay = ({ widget }: WidgetDisplayProps) => {
     <div
       style={{
         backgroundColor: 'white',
-        borderRadius: '12px',
-        padding: '24px',
-        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-        marginBottom: '24px',
+        borderRadius: '8px',
+        padding: '12px',
+        boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden',
       }}
     >
       {/* Header */}
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2
           style={{
-            fontSize: '20px',
+            fontSize: '16px',
             fontWeight: '600',
             color: '#111827',
-            margin: '0 0 8px 0',
+            margin: 0,
           }}
         >
           {title}
         </h2>
         <div
           style={{
-            fontSize: '14px',
+            fontSize: '11px',
             color: '#6b7280',
           }}
         >
-          {widget.summary.totalEvents} events •{' '}
-          {new Date(widget.timestamp).toLocaleTimeString()}
+          {widget.summary.totalAgents} agents
         </div>
       </div>
 
-      {/* State Breakdown */}
+      {/* State Summary */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '12px',
+          display: 'flex',
+          gap: '4px',
+          flexWrap: 'wrap',
+          marginBottom: '8px',
         }}
       >
         {sortedStates.map(([state, count]) => (
           <div
             key={state}
+            onClick={() => onStateFilter(state as AgentState)}
             style={{
-              padding: '12px',
-              borderRadius: '8px',
-              backgroundColor: '#f9fafb',
-              border: '1px solid #e5e7eb',
+              padding: selectedState === state ? '1px 5px' : '2px 6px',
+              borderRadius: '4px',
+              backgroundColor: STATE_COLORS[state as AgentState] + '20',
+              border: selectedState === state
+                ? `3px solid ${STATE_COLORS[state as AgentState]}`
+                : `1px solid ${STATE_COLORS[state as AgentState]}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+              transition: 'border-width 0.1s',
             }}
           >
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '4px',
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: STATE_COLORS[state as AgentState],
               }}
-            >
-              <div
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  backgroundColor: STATE_COLORS[state as AgentState],
-                }}
-              />
-              <div
-                style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  fontWeight: '500',
-                }}
-              >
-                {STATE_LABELS[state as AgentState]}
-              </div>
-            </div>
-            <div
+            />
+            <span
               style={{
-                fontSize: '24px',
-                fontWeight: '700',
+                fontSize: '10px',
+                fontWeight: '600',
                 color: '#111827',
               }}
             >
-              {count}
-            </div>
+              {STATE_LABELS[state as AgentState]}: {count}
+            </span>
           </div>
         ))}
       </div>
 
-      {/* Location Breakdown (for department widgets) */}
-      {widget.summary.locationBreakdown && (
-        <div style={{ marginTop: '20px' }}>
-          <h3
+      {/* Agent List */}
+      {agents.length > 0 ? (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            border: '1px solid #e5e7eb',
+            borderRadius: '4px',
+          }}
+        >
+          <table
             style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#374151',
-              marginBottom: '12px',
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '9px',
             }}
           >
-            By Location
-          </h3>
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              flexWrap: 'wrap',
-            }}
-          >
-            {Object.entries(widget.summary.locationBreakdown)
-              .filter(([_, count]) => count > 0)
-              .map(([location, count]) => (
-                <div
-                  key={location}
+            <thead>
+              <tr
+                style={{
+                  backgroundColor: '#f9fafb',
+                  borderBottom: '1px solid #e5e7eb',
+                  position: 'sticky',
+                  top: 0,
+                }}
+              >
+                <th
                   style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#f3f4f6',
-                    borderRadius: '6px',
-                    fontSize: '12px',
+                    padding: '4px 6px',
+                    textAlign: 'left',
+                    fontWeight: '600',
                     color: '#374151',
+                    fontSize: '8px',
                   }}
                 >
-                  <span style={{ fontWeight: '600' }}>
-                    {location.charAt(0).toUpperCase() + location.slice(1)}:
-                  </span>{' '}
-                  {count}
-                </div>
+                  ID
+                </th>
+                <th
+                  style={{
+                    padding: '4px 6px',
+                    textAlign: 'left',
+                    fontWeight: '600',
+                    color: '#374151',
+                    fontSize: '8px',
+                  }}
+                >
+                  Status
+                </th>
+                <th
+                  style={{
+                    padding: '4px 6px',
+                    textAlign: 'left',
+                    fontWeight: '600',
+                    color: '#374151',
+                    fontSize: '8px',
+                  }}
+                >
+                  Duration
+                </th>
+                <th
+                  style={{
+                    padding: '4px 6px',
+                    textAlign: 'left',
+                    fontWeight: '600',
+                    color: '#374151',
+                    fontSize: '8px',
+                  }}
+                >
+                  City
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedAgents.map((agent) => (
+                <tr
+                  key={agent.agentId}
+                  onClick={() => onAgentClick(agent)}
+                  style={{
+                    borderBottom: '1px solid #f3f4f6',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.15s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9fafb')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <td
+                    style={{
+                      padding: '3px 6px',
+                      color: '#111827',
+                      fontWeight: '500',
+                      fontSize: '9px',
+                    }}
+                  >
+                    {agent.agentId}
+                  </td>
+                  <td style={{ padding: '3px 6px' }}>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        padding: '1px 4px',
+                        borderRadius: '3px',
+                        backgroundColor:
+                          STATE_COLORS[agent.state] + '20',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '4px',
+                          height: '4px',
+                          borderRadius: '50%',
+                          backgroundColor: STATE_COLORS[agent.state],
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '8px',
+                          fontWeight: '500',
+                          color: '#111827',
+                        }}
+                      >
+                        {STATE_LABELS[agent.state]}
+                      </span>
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      padding: '3px 6px',
+                      color: '#6b7280',
+                      fontFamily: 'monospace',
+                      fontSize: '8px',
+                    }}
+                  >
+                    {formatDuration(agent.stateStart)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '3px 6px',
+                      color: '#6b7280',
+                      fontSize: '8px',
+                    }}
+                  >
+                    {agent.location.charAt(0).toUpperCase() +
+                      agent.location.slice(1)}
+                  </td>
+                </tr>
               ))}
-          </div>
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {/* Department Breakdown (for global widget) */}
-      {widget.summary.departmentBreakdown && (
-        <div style={{ marginTop: '20px' }}>
-          <h3
-            style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#374151',
-              marginBottom: '12px',
-            }}
-          >
-            By Department
-          </h3>
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              flexWrap: 'wrap',
-            }}
-          >
-            {Object.entries(widget.summary.departmentBreakdown)
-              .filter(([_, count]) => count > 0)
-              .map(([dept, count]) => (
-                <div
-                  key={dept}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#f3f4f6',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    color: '#374151',
-                  }}
-                >
-                  <span style={{ fontWeight: '600' }}>
-                    {dept.charAt(0).toUpperCase() + dept.slice(1)}:
-                  </span>{' '}
-                  {count}
-                </div>
-              ))}
-          </div>
+      ) : (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '16px',
+            color: '#9ca3af',
+            fontSize: '11px',
+          }}
+        >
+          No agents in this department
         </div>
       )}
     </div>

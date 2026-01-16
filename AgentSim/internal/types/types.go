@@ -46,6 +46,25 @@ const (
 	LocationRemote    Location = "remote"
 )
 
+// AgentKPIs contains performance metrics for an agent
+type AgentKPIs struct {
+	TotalCalls           int     `json:"totalCalls"`
+	AvgCallDuration      float64 `json:"avgCallDuration"`      // seconds
+	AcwTime              float64 `json:"acwTime"`              // seconds
+	AcwCount             int     `json:"acwCount"`
+	HoldCount            int     `json:"holdCount"`
+	HoldTime             float64 `json:"holdTime"`             // seconds
+	TransferCount        int     `json:"transferCount"`
+	ConferenceCount      int     `json:"conferenceCount"`
+	BreakTime            float64 `json:"breakTime"`            // seconds
+	LoginTime            float64 `json:"loginTime"`            // seconds since login
+	Occupancy            float64 `json:"occupancy"`            // 0-100%
+	Adherence            float64 `json:"adherence"`            // 0-100%
+	AvgHandleTime        float64 `json:"avgHandleTime"`        // seconds
+	FirstCallResolution  float64 `json:"firstCallResolution"`  // 0-100%
+	CustomerSatisfaction float64 `json:"customerSatisfaction"` // 1-5
+}
+
 // Agent represents a call center agent
 type Agent struct {
 	ID         string     `json:"id"`
@@ -55,6 +74,8 @@ type Agent struct {
 	State      AgentState `json:"state"`
 	StateStart time.Time  `json:"stateStart"`
 	LastUpdate time.Time  `json:"lastUpdate"`
+	LoginTime  time.Time  `json:"loginTime"`
+	KPIs       AgentKPIs  `json:"kpis"`
 }
 
 // AgentEvent represents an individual agent state event sent to Backend
@@ -66,6 +87,7 @@ type AgentEvent struct {
 	Team          string     `json:"team"`
 	Timestamp     time.Time  `json:"timestamp"`
 	StateDuration float64    `json:"stateDuration"` // seconds in current state
+	KPIs          AgentKPIs  `json:"kpis"`
 }
 
 // SimulationConfig holds configuration for the simulation

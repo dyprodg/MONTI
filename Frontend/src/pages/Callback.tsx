@@ -1,27 +1,31 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { authService } from '../services/auth'
+import { useAuth } from '../contexts/AuthContext'
 
 export const Callback = () => {
   const navigate = useNavigate()
+  const { refreshUser } = useAuth()
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
         await authService.handleCallback()
-        navigate('/')
+        // Refresh the AuthContext user state after successful callback
+        await refreshUser()
+        navigate('/', { replace: true })
       } catch (error) {
         console.error('Callback error:', error)
         setError('Failed to complete login. Please try again.')
         setTimeout(() => {
-          navigate('/login')
+          navigate('/login', { replace: true })
         }, 3000)
       }
     }
 
     handleCallback()
-  }, [navigate])
+  }, [navigate, refreshUser])
 
   return (
     <div

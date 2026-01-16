@@ -45,9 +45,8 @@ export class WebSocketService {
           const data = JSON.parse(event.data)
           this.messageHandlers.forEach((handler) => handler(data))
         } catch (error) {
-          this.notifyError({
-            message: 'Failed to parse message',
-          })
+          // Log parse errors to console instead of showing to user
+          console.debug('[WebSocket] Failed to parse message:', event.data)
         }
       }
 

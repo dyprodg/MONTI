@@ -1,16 +1,63 @@
 import { useWebSocket } from '../hooks/useWebSocket'
 import { ConnectionStatus } from '../components/ConnectionStatus'
 import { WidgetDisplay } from '../components/WidgetDisplay'
+import { AgentModal } from '../components/AgentModal'
 import { useAuth } from '../contexts/AuthContext'
-import { Widget } from '../types'
+import { Widget, Location, AgentInfo, AgentState, Department } from '../types'
 import { useState, useEffect } from 'react'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws'
 
+const DEPARTMENTS = ['sales', 'support', 'technical', 'retention'] as const
+const VIEWS = ['all', 'sales', 'support', 'technical', 'retention'] as const
+
+// Helper to format seconds
+const formatSeconds = (seconds: number): string => {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  return `${mins}m ${secs}s`
+}
+
+// KPI Card component
+const KPICard = ({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) => (
+  <div
+    style={{
+      backgroundColor: highlight ? '#f0f9ff' : '#f9fafb',
+      borderRadius: '6px',
+      padding: '10px',
+      border: highlight ? '1px solid #bae6fd' : '1px solid #e5e7eb',
+    }}
+  >
+    <div style={{ fontSize: '9px', color: '#6b7280', marginBottom: '2px', textTransform: 'uppercase' }}>
+      {label}
+    </div>
+    <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827' }}>{value}</div>
+  </div>
+)
+
 export const Dashboard = () => {
-  const { data, connectionState, error } = useWebSocket(WS_URL)
-  const { user, logout } = useAuth()
+  const { user, logout, isAuthenticated } = useAuth()
+  const { data, connectionState, error } = useWebSocket(WS_URL, { enabled: isAuthenticated })
   const [widgets, setWidgets] = useState<Map<string, Widget>>(new Map())
+  const [selectedCity, setSelectedCity] = useState<Location | 'all'>('all')
+  const [visibleError, setVisibleError] = useState<string | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
+  const [selectedState, setSelectedState] = useState<AgentState | null>(null)
+  const [selectedView, setSelectedView] = useState<'all' | Department>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const handleAgentClick = (agent: AgentInfo) => {
+    setSelectedAgent(agent)
+  }
+
+  const handleCloseModal = () => {
+    setSelectedAgent(null)
+  }
+
+  const handleStateFilter = (state: AgentState) => {
+    setSelectedState(state === selectedState ? null : state)
+  }
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -30,15 +77,73 @@ export const Dashboard = () => {
     }
   }, [data])
 
+  // Auto-dismiss errors after 5 seconds
+  useEffect(() => {
+    if (error) {
+      setVisibleError(error.message)
+      const timer = setTimeout(() => {
+        setVisibleError(null)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
   const handleLogout = async () => {
     await logout()
   }
 
-  // Sort widgets: global first, then departments alphabetically
-  const sortedWidgets = Array.from(widgets.values()).sort((a, b) => {
-    if (a.type === 'global_overview') return -1
-    if (b.type === 'global_overview') return 1
-    return (a.department || '').localeCompare(b.department || '')
+  // Get only department widgets (not global overview)
+  const departmentWidgets = Array.from(widgets.values())
+    .filter((w) => w.type === 'department_overview')
+    .sort((a, b) => (a.department || '').localeCompare(b.department || ''))
+
+  // Filter widgets by selected city, state, and search query
+  const filteredWidgets = departmentWidgets.map((widget) => {
+    if (!widget.agents) {
+      return widget
+    }
+
+    // Filter agents by city, state, and search query
+    let filteredAgents = widget.agents
+
+    if (selectedCity !== 'all') {
+      filteredAgents = filteredAgents.filter(
+        (agent) => agent.location === selectedCity
+      )
+    }
+
+    if (selectedState) {
+      filteredAgents = filteredAgents.filter(
+        (agent) => agent.state === selectedState
+      )
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filteredAgents = filteredAgents.filter(
+        (agent) => agent.agentId.toLowerCase().includes(query)
+      )
+    }
+
+    // Recalculate summary for filtered agents
+    const stateBreakdown: Record<string, number> = {}
+    const locationBreakdown: Record<string, number> = {}
+
+    filteredAgents.forEach((agent) => {
+      stateBreakdown[agent.state] = (stateBreakdown[agent.state] || 0) + 1
+      locationBreakdown[agent.location] = (locationBreakdown[agent.location] || 0) + 1
+    })
+
+    return {
+      ...widget,
+      agents: filteredAgents,
+      summary: {
+        ...widget.summary,
+        totalAgents: filteredAgents.length,
+        stateBreakdown,
+        locationBreakdown,
+      },
+    }
   })
 
   return (
@@ -46,34 +151,28 @@ export const Dashboard = () => {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f9fafb',
-        padding: '32px',
+        padding: '16px',
       }}
     >
       <div
         style={{
-          maxWidth: '1400px',
+          maxWidth: '100%',
           margin: '0 auto',
         }}
       >
         {/* Header with User Info */}
         <div
           style={{
-            marginBottom: '32px',
-            textAlign: 'center',
+            marginBottom: '12px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '16px',
-            }}
-          >
-            <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <h1
               style={{
-                fontSize: '36px',
+                fontSize: '24px',
                 fontWeight: '700',
                 color: '#111827',
                 margin: 0,
@@ -81,89 +180,229 @@ export const Dashboard = () => {
             >
               MONTI
             </h1>
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                gap: '12px',
-              }}
-            >
-              {user && (
-                <>
-                  <div
-                    style={{
-                      fontSize: '14px',
-                      color: '#6b7280',
-                      textAlign: 'right',
-                    }}
-                  >
-                    <div style={{ fontWeight: '600', color: '#111827' }}>
-                      {user.name}
-                    </div>
-                    <div style={{ fontSize: '12px' }}>
-                      {user.role}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleLogout}
-                    style={{
-                      padding: '8px 16px',
-                      backgroundColor: '#f3f4f6',
-                      color: '#374151',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      fontWeight: '500',
-                    }}
-                  >
-                    Logout
-                  </button>
-                </>
-              )}
-            </div>
+            <ConnectionStatus state={connectionState} />
           </div>
-          <p
+          <div
             style={{
-              fontSize: '16px',
-              color: '#6b7280',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
             }}
           >
-            Live Call Center Monitoring
-          </p>
-        </div>
-
-        {/* Connection Status */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            marginBottom: '32px',
-          }}
-        >
-          <ConnectionStatus state={connectionState} />
+            {user && (
+              <>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: '#6b7280',
+                    textAlign: 'right',
+                  }}
+                >
+                  <div style={{ fontWeight: '600', color: '#111827' }}>
+                    {user.name}
+                  </div>
+                  <div style={{ fontSize: '11px' }}>
+                    {user.role}
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#f3f4f6',
+                    color: '#374151',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                  }}
+                >
+                  Logout
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Error Display */}
-        {error && (
+        {visibleError && (
           <div
             style={{
-              padding: '16px',
+              padding: '12px',
               backgroundColor: '#fef2f2',
               border: '1px solid #fecaca',
-              borderRadius: '8px',
-              marginBottom: '24px',
+              borderRadius: '6px',
+              marginBottom: '12px',
               color: '#991b1b',
+              fontSize: '12px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
-            <strong>Error:</strong> {error.message}
+            <span>
+              <strong>Error:</strong> {visibleError}
+            </span>
+            <button
+              onClick={() => setVisibleError(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#991b1b',
+                cursor: 'pointer',
+                fontSize: '18px',
+                padding: '0 4px',
+              }}
+            >
+              ×
+            </button>
           </div>
         )}
 
+        {/* Department View Tabs */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '4px',
+            marginBottom: '12px',
+          }}
+        >
+          {VIEWS.map((view) => (
+            <button
+              key={view}
+              onClick={() => setSelectedView(view)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                backgroundColor: selectedView === view ? '#3b82f6' : '#f3f4f6',
+                color: selectedView === view ? 'white' : '#374151',
+                transition: 'all 0.2s',
+              }}
+            >
+              {view === 'all' ? 'All Departments' : view.charAt(0).toUpperCase() + view.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Filters Bar */}
+        <div
+          style={{
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            backgroundColor: 'white',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
+          }}
+        >
+          {/* Search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#374151',
+              }}
+            >
+              Search:
+            </span>
+            <input
+              type="text"
+              placeholder="Agent ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '4px',
+                border: '1px solid #e5e7eb',
+                fontSize: '11px',
+                width: '120px',
+                outline: 'none',
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  backgroundColor: '#f3f4f6',
+                  color: '#374151',
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb' }} />
+
+          {/* City Filter */}
+          <span
+            style={{
+              fontSize: '12px',
+              fontWeight: '600',
+              color: '#374151',
+            }}
+          >
+            City:
+          </span>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setSelectedCity('all')}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '4px',
+                border: 'none',
+                fontSize: '11px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                backgroundColor:
+                  selectedCity === 'all' ? '#3b82f6' : '#f3f4f6',
+                color: selectedCity === 'all' ? 'white' : '#374151',
+                transition: 'all 0.2s',
+              }}
+            >
+              All
+            </button>
+            {(['berlin', 'munich', 'hamburg', 'frankfurt', 'remote'] as Location[]).map(
+              (city) => (
+                <button
+                  key={city}
+                  onClick={() => setSelectedCity(city)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    backgroundColor:
+                      selectedCity === city ? '#3b82f6' : '#f3f4f6',
+                    color: selectedCity === city ? 'white' : '#374151',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {city.charAt(0).toUpperCase() + city.slice(1)}
+                </button>
+              )
+            )}
+          </div>
+        </div>
+
         {/* Widgets Display */}
-        {sortedWidgets.length === 0 ? (
+        {departmentWidgets.length === 0 ? (
           <div
             style={{
               textAlign: 'center',
@@ -197,44 +436,191 @@ export const Dashboard = () => {
                 fontSize: '14px',
               }}
             >
-              Widgets will appear here when agent events are received
+              Department data will appear here when agent events are received
             </p>
           </div>
         ) : (
           <>
-            {/* Grid layout for widgets */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
-                gap: '24px',
-              }}
-            >
-              {sortedWidgets.map((widget) => (
-                <WidgetDisplay
-                  key={widget.type === 'global_overview' ? 'global' : widget.department}
-                  widget={widget}
-                />
-              ))}
-            </div>
+            {selectedView === 'all' ? (
+              /* Grid layout for all department widgets (2x2) - each cell 50% width x 50% height */
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gridTemplateRows: '1fr 1fr',
+                  gap: '12px',
+                  height: 'calc(100vh - 200px)',
+                  minHeight: 0,
+                }}
+              >
+                {DEPARTMENTS.map((dept) => {
+                  const widget = filteredWidgets.find((w) => w.department === dept)
+                  return (
+                    <div
+                      key={dept}
+                      style={{
+                        minHeight: 0,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {widget ? (
+                        <WidgetDisplay
+                          widget={widget}
+                          onAgentClick={handleAgentClick}
+                          selectedState={selectedState}
+                          onStateFilter={handleStateFilter}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            backgroundColor: 'white',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
+                            textAlign: 'center',
+                            color: '#9ca3af',
+                            height: '100%',
+                          }}
+                        >
+                          <h2
+                            style={{
+                              fontSize: '16px',
+                              fontWeight: '600',
+                              color: '#111827',
+                              marginBottom: '8px',
+                            }}
+                          >
+                            {dept.charAt(0).toUpperCase() + dept.slice(1)} Department
+                          </h2>
+                          <p style={{ fontSize: '11px' }}>No data available</p>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Single department full-width view with KPIs */
+              <div style={{ height: 'calc(100vh - 200px)', display: 'flex', gap: '12px' }}>
+                {(() => {
+                  const widget = filteredWidgets.find((w) => w.department === selectedView)
+                  if (!widget) {
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: 'white',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
+                          textAlign: 'center',
+                          color: '#9ca3af',
+                          flex: 1,
+                        }}
+                      >
+                        <h2
+                          style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: '#111827',
+                            marginBottom: '8px',
+                          }}
+                        >
+                          {selectedView.charAt(0).toUpperCase() + selectedView.slice(1)} Department
+                        </h2>
+                        <p style={{ fontSize: '11px' }}>No data available</p>
+                      </div>
+                    )
+                  }
+
+                  // Calculate aggregate KPIs
+                  const agents = widget.agents || []
+                  const totalCalls = agents.reduce((sum, a) => sum + (a.kpis?.totalCalls || 0), 0)
+                  const avgOccupancy = agents.length > 0
+                    ? agents.reduce((sum, a) => sum + (a.kpis?.occupancy || 0), 0) / agents.length
+                    : 0
+                  const avgAdherence = agents.length > 0
+                    ? agents.reduce((sum, a) => sum + (a.kpis?.adherence || 0), 0) / agents.length
+                    : 0
+                  const avgCSAT = agents.length > 0
+                    ? agents.reduce((sum, a) => sum + (a.kpis?.customerSatisfaction || 0), 0) / agents.length
+                    : 0
+                  const avgFCR = agents.length > 0
+                    ? agents.reduce((sum, a) => sum + (a.kpis?.firstCallResolution || 0), 0) / agents.length
+                    : 0
+                  const totalHolds = agents.reduce((sum, a) => sum + (a.kpis?.holdCount || 0), 0)
+                  const totalTransfers = agents.reduce((sum, a) => sum + (a.kpis?.transferCount || 0), 0)
+                  const avgHandleTime = agents.length > 0
+                    ? agents.reduce((sum, a) => sum + (a.kpis?.avgHandleTime || 0), 0) / agents.length
+                    : 0
+
+                  return (
+                    <>
+                      {/* KPIs Panel */}
+                      <div
+                        style={{
+                          width: '280px',
+                          backgroundColor: 'white',
+                          borderRadius: '8px',
+                          padding: '16px',
+                          boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px',
+                        }}
+                      >
+                        <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                          Department KPIs
+                        </h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <KPICard label="Total Calls" value={totalCalls.toString()} />
+                          <KPICard label="Avg Handle Time" value={formatSeconds(avgHandleTime)} />
+                          <KPICard label="Occupancy" value={`${avgOccupancy.toFixed(1)}%`} highlight />
+                          <KPICard label="Adherence" value={`${avgAdherence.toFixed(1)}%`} highlight />
+                          <KPICard label="CSAT" value={`${avgCSAT.toFixed(2)}/5`} highlight />
+                          <KPICard label="FCR" value={`${avgFCR.toFixed(1)}%`} highlight />
+                          <KPICard label="Total Holds" value={totalHolds.toString()} />
+                          <KPICard label="Transfers" value={totalTransfers.toString()} />
+                        </div>
+                      </div>
+                      {/* Agent List */}
+                      <div style={{ flex: 1 }}>
+                        <WidgetDisplay
+                          widget={widget}
+                          onAgentClick={handleAgentClick}
+                          selectedState={selectedState}
+                          onStateFilter={handleStateFilter}
+                        />
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
 
             {/* Stats Footer */}
             <div
               style={{
-                marginTop: '32px',
+                marginTop: '8px',
                 textAlign: 'center',
-                fontSize: '14px',
+                fontSize: '11px',
                 color: '#9ca3af',
               }}
             >
               <p>
-                Displaying {sortedWidgets.length} widget{sortedWidgets.length !== 1 ? 's' : ''} •
-                Updated in real-time
+                {filteredWidgets.reduce((sum, w) => sum + (w.summary.totalAgents || 0), 0)} agents • Real-time
+                {selectedCity !== 'all' && ` • ${selectedCity.charAt(0).toUpperCase() + selectedCity.slice(1)}`}
+                {selectedState && ` • ${selectedState.replace('_', ' ')}`}
               </p>
             </div>
           </>
         )}
       </div>
+
+      {/* Agent Modal */}
+      {selectedAgent && (
+        <AgentModal agent={selectedAgent} onClose={handleCloseModal} />
+      )}
     </div>
   )
 }

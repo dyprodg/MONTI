@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,7 +59,7 @@ func (c *Client) Start(activeAgents int) error {
 	resp, err := c.httpClient.Post(
 		fmt.Sprintf("%s/start", c.baseURL),
 		"application/json",
-		io.NopCloser(io.NopCloser(io.NopCloser(nil))),
+		bytes.NewReader(data),
 	)
 	if err != nil {
 		return err

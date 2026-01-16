@@ -65,11 +65,14 @@ func main() {
 	// Create event cache
 	eventCache := cache.NewEventCache()
 
+	// Create agent state tracker
+	stateTracker := cache.NewAgentStateTracker()
+
 	// Create event receiver
-	eventReceiver := event.NewReceiver(eventCache, log.Logger)
+	eventReceiver := event.NewReceiver(eventCache, stateTracker, log.Logger)
 
 	// Create aggregator
-	aggregatorService := aggregator.NewAggregator(eventCache, hub, log.Logger)
+	aggregatorService := aggregator.NewAggregator(eventCache, stateTracker, hub, log.Logger)
 	go aggregatorService.Start(ctx)
 
 	// Create router

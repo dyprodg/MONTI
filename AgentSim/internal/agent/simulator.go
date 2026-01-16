@@ -70,6 +70,8 @@ func (s *Simulator) activateAgents(count int) {
 		agent.State = types.StateAvailable
 		agent.StateStart = time.Now()
 		agent.LastUpdate = time.Now()
+		agent.LoginTime = time.Now()
+		agent.KPIs = s.generateInitialKPIs()
 		s.activeAgents[agent.ID] = true
 
 		// Send initial state event
@@ -121,7 +123,12 @@ func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) 
 
 	for i := range s.agents {
 		if s.agents[i].ID == agentID {
+			previousState := s.agents[i].State
 			stateDuration = time.Since(s.agents[i].StateStart).Seconds()
+
+			// Update KPIs before changing state
+			s.updateKPIs(&s.agents[i], previousState, stateDuration)
+
 			s.agents[i].State = newState
 			s.agents[i].StateStart = time.Now()
 			s.agents[i].LastUpdate = time.Now()
@@ -145,6 +152,7 @@ func (s *Simulator) sendEvent(agent types.Agent, stateDuration float64) {
 		Team:          agent.Team,
 		Timestamp:     time.Now(),
 		StateDuration: stateDuration,
+		KPIs:          agent.KPIs,
 	}
 
 	data, err := json.Marshal(event)
@@ -283,4 +291,87 @@ func (s *Simulator) GetActiveCount() int {
 // GetEventsSent returns the total number of events sent to backend
 func (s *Simulator) GetEventsSent() int64 {
 	return atomic.LoadInt64(&s.eventsSent)
+}
+
+// generateInitialKPIs creates realistic initial KPI values for a newly logged-in agent
+func (s *Simulator) generateInitialKPIs() types.AgentKPIs {
+	return types.AgentKPIs{
+		TotalCalls:           0,
+		AvgCallDuration:      0,
+		AcwTime:              0,
+		AcwCount:             0,
+		HoldCount:            0,
+		HoldTime:             0,
+		TransferCount:        0,
+		ConferenceCount:      0,
+		BreakTime:            0,
+		LoginTime:            0,
+		Occupancy:            0,
+		Adherence:            85 + s.rng.Float64()*15, // 85-100% starting adherence
+		AvgHandleTime:        0,
+		FirstCallResolution:  70 + s.rng.Float64()*25, // 70-95% FCR
+		CustomerSatisfaction: 3.5 + s.rng.Float64()*1.5, // 3.5-5.0 CSAT
+	}
+}
+
+// updateKPIs updates agent KPIs based on current state and duration
+func (s *Simulator) updateKPIs(agent *types.Agent, previousState types.AgentState, stateDuration float64) {
+	now := time.Now()
+	agent.KPIs.LoginTime = now.Sub(agent.LoginTime).Seconds()
+
+	switch previousState {
+	case types.StateOnCall:
+		agent.KPIs.TotalCalls++
+		// Update average call duration
+		if agent.KPIs.TotalCalls == 1 {
+			agent.KPIs.AvgCallDuration = stateDuration
+		} else {
+			agent.KPIs.AvgCallDuration =
+				(agent.KPIs.AvgCallDuration*float64(agent.KPIs.TotalCalls-1) + stateDuration) / float64(agent.KPIs.TotalCalls)
+		}
+		// Update average handle time (simplified: same as call duration for now)
+		agent.KPIs.AvgHandleTime = agent.KPIs.AvgCallDuration
+
+		// Randomly adjust FCR and CSAT slightly
+		agent.KPIs.FirstCallResolution = clamp(agent.KPIs.FirstCallResolution+(s.rng.Float64()-0.5)*2, 60, 100)
+		agent.KPIs.CustomerSatisfaction = clamp(agent.KPIs.CustomerSatisfaction+(s.rng.Float64()-0.5)*0.2, 1, 5)
+
+	case types.StateAfterCallWork:
+		agent.KPIs.AcwCount++
+		agent.KPIs.AcwTime += stateDuration
+
+	case types.StateOnHold:
+		agent.KPIs.HoldCount++
+		agent.KPIs.HoldTime += stateDuration
+
+	case types.StateTransferring:
+		agent.KPIs.TransferCount++
+
+	case types.StateConference:
+		agent.KPIs.ConferenceCount++
+
+	case types.StateBreak, types.StateLunch:
+		agent.KPIs.BreakTime += stateDuration
+	}
+
+	// Calculate occupancy: (call time + ACW time) / (login time - break time) * 100
+	productiveTime := agent.KPIs.AvgCallDuration*float64(agent.KPIs.TotalCalls) + agent.KPIs.AcwTime
+	availableTime := agent.KPIs.LoginTime - agent.KPIs.BreakTime
+	if availableTime > 0 {
+		agent.KPIs.Occupancy = clamp((productiveTime/availableTime)*100, 0, 100)
+	}
+
+	// Adherence fluctuates slightly
+	agent.KPIs.Adherence = clamp(agent.KPIs.Adherence+(s.rng.Float64()-0.5)*1, 70, 100)
+}
+
+// clamp restricts a value to a min/max range
+func clamp(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
