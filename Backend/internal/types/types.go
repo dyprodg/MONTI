@@ -46,6 +46,31 @@ const (
 	LocationRemote    Location = "remote"
 )
 
+// BusinessUnit represents organizational business units
+type BusinessUnit string
+
+const (
+	BUSGB BusinessUnit = "SGB" // South Germany Business - Munich, Frankfurt
+	BUNGB BusinessUnit = "NGB" // North Germany Business - Berlin, Hamburg
+	BURGB BusinessUnit = "RGB" // Remote Business - Remote
+)
+
+// BULocationMapping maps business units to their allowed locations
+var BULocationMapping = map[BusinessUnit][]Location{
+	BUSGB: {LocationMunich, LocationFrankfurt},
+	BUNGB: {LocationBerlin, LocationHamburg},
+	BURGB: {LocationRemote},
+}
+
+// AllLocations returns all defined locations
+var AllLocations = []Location{
+	LocationBerlin,
+	LocationMunich,
+	LocationHamburg,
+	LocationFrankfurt,
+	LocationRemote,
+}
+
 // AgentKPIs contains performance metrics for an agent
 type AgentKPIs struct {
 	TotalCalls           int     `json:"totalCalls"`

@@ -221,6 +221,11 @@ export const Dashboard = () => {
                   </div>
                   <div style={{ fontSize: '11px' }}>
                     {user.role}
+                    {user.businessUnits && user.businessUnits.length > 0 && (
+                      <span style={{ marginLeft: '8px', color: colors.primary }}>
+                        [{user.businessUnits.join(', ')}]
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -368,7 +373,7 @@ export const Dashboard = () => {
           {/* Divider */}
           <div style={{ width: '1px', height: '24px', backgroundColor: colors.border }} />
 
-          {/* City Filter */}
+          {/* City Filter - only show cities the user has access to */}
           <span
             style={{
               fontSize: '12px',
@@ -396,8 +401,10 @@ export const Dashboard = () => {
             >
               All
             </button>
-            {(['berlin', 'munich', 'hamburg', 'frankfurt', 'remote'] as Location[]).map(
-              (city) => (
+            {/* Filter cities based on user's allowed locations */}
+            {(['berlin', 'munich', 'hamburg', 'frankfurt', 'remote'] as Location[])
+              .filter((city) => !user?.allowedLocations || user.allowedLocations.length === 0 || user.allowedLocations.includes(city))
+              .map((city) => (
                 <button
                   key={city}
                   onClick={() => setSelectedCity(city)}
@@ -416,8 +423,7 @@ export const Dashboard = () => {
                 >
                   {city.charAt(0).toUpperCase() + city.slice(1)}
                 </button>
-              )
-            )}
+              ))}
           </div>
         </div>
 

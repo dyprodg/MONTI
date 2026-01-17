@@ -1,8 +1,10 @@
 package websocket
 
 import (
+	"encoding/json"
 	"sync"
 
+	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/rs/zerolog"
 )
 
@@ -64,20 +66,16 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
-			for client := range h.clients {
-				select {
-				case client.send <- message:
-				default:
-					// Client's send buffer is full, close and remove it
-					close(client.send)
-					delete(h.clients, client)
-					h.logger.Warn().
-						Str("client_id", client.id).
-						Msg("client send buffer full, closing connection")
-				}
+			// Try to parse as a Widget for per-client filtering
+			var widget types.Widget
+			if err := json.Unmarshal(message, &widget); err != nil {
+				// Not a widget, broadcast as-is to all clients
+				h.broadcastRaw(message)
+				continue
 			}
-			h.mu.RUnlock()
+
+			// Broadcast with per-client RBAC filtering
+			h.broadcastFiltered(&widget)
 		}
 	}
 }
@@ -92,4 +90,56 @@ func (h *Hub) ClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+// broadcastRaw sends a raw message to all clients without filtering
+func (h *Hub) broadcastRaw(message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		select {
+		case client.send <- message:
+		default:
+			// Client's send buffer is full, close and remove it
+			close(client.send)
+			delete(h.clients, client)
+			h.logger.Warn().
+				Str("client_id", client.id).
+				Msg("client send buffer full, closing connection")
+		}
+	}
+}
+
+// broadcastFiltered sends a widget to each client after applying RBAC filtering
+func (h *Hub) broadcastFiltered(widget *types.Widget) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		// Apply client-specific RBAC filter
+		filtered := client.FilterWidget(widget)
+		if filtered == nil {
+			// Client doesn't have access to any agents in this widget
+			continue
+		}
+
+		// Marshal the filtered widget
+		data, err := json.Marshal(filtered)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("failed to marshal filtered widget")
+			continue
+		}
+
+		select {
+		case client.send <- data:
+		default:
+			// Client's send buffer is full, close and remove it
+			close(client.send)
+			delete(h.clients, client)
+			h.logger.Warn().
+				Str("client_id", client.id).
+				Msg("client send buffer full, closing connection")
+		}
+	}
 }

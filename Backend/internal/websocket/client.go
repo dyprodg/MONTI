@@ -3,7 +3,9 @@ package websocket
 import (
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/auth"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
+	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -28,17 +30,22 @@ type Client struct {
 
 	// Logger
 	logger zerolog.Logger
+
+	// User claims with allowed locations for RBAC filtering
+	claims *auth.Claims
 }
 
 // NewClient creates a new Client
-func NewClient(hub *Hub, conn *websocket.Conn, cfg *config.Config, logger zerolog.Logger) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, cfg *config.Config, logger zerolog.Logger, claims *auth.Claims) *Client {
+	clientID := uuid.New().String()
 	return &Client{
-		id:     uuid.New().String(),
+		id:     clientID,
 		hub:    hub,
 		conn:   conn,
 		send:   make(chan []byte, 256),
 		config: cfg,
-		logger: logger.With().Str("client_id", uuid.New().String()).Logger(),
+		logger: logger.With().Str("client_id", clientID).Logger(),
+		claims: claims,
 	}
 }
 
@@ -123,4 +130,56 @@ func (c *Client) writePump() {
 func (c *Client) Start() {
 	go c.writePump()
 	go c.readPump()
+}
+
+// FilterWidget filters a widget's agents based on the client's allowed locations
+// Returns nil if no agents are visible to this client
+func (c *Client) FilterWidget(widget *types.Widget) *types.Widget {
+	// If no claims or no agents, return as-is
+	if c.claims == nil || len(widget.Agents) == 0 {
+		return widget
+	}
+
+	// If user has all locations (admin), return original widget
+	if len(c.claims.AllowedLocations) == len(types.AllLocations) {
+		return widget
+	}
+
+	// Filter agents by allowed locations
+	var filteredAgents []types.AgentInfo
+	for _, agent := range widget.Agents {
+		if c.claims.IsLocationAllowed(agent.Location) {
+			filteredAgents = append(filteredAgents, agent)
+		}
+	}
+
+	// If no agents visible, return nil (don't send this widget)
+	if len(filteredAgents) == 0 {
+		return nil
+	}
+
+	// Recalculate summary stats for filtered agents
+	stateBreakdown := make(map[types.AgentState]int)
+	locationBreakdown := make(map[types.Location]int)
+
+	for _, agent := range filteredAgents {
+		stateBreakdown[agent.State]++
+		locationBreakdown[agent.Location]++
+	}
+
+	// Create filtered widget copy
+	filteredWidget := &types.Widget{
+		Type:       widget.Type,
+		Department: widget.Department,
+		Timestamp:  widget.Timestamp,
+		Summary: types.WidgetSummary{
+			TotalAgents:         len(filteredAgents),
+			StateBreakdown:      stateBreakdown,
+			DepartmentBreakdown: widget.Summary.DepartmentBreakdown,
+			LocationBreakdown:   locationBreakdown,
+		},
+		Agents: filteredAgents,
+	}
+
+	return filteredWidget
 }

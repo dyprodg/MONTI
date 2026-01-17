@@ -11,14 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 type Claims struct {
-	Email  string   `json:"email"`
-	Name   string   `json:"name"`
-	Role   string   `json:"role"`
-	Groups []string `json:"groups"`
+	Email            string           `json:"email"`
+	Name             string           `json:"name"`
+	Role             string           `json:"role"`
+	Groups           []string         `json:"groups"`
+	BusinessUnits    []string         `json:"businessUnits"`    // Extracted from groups (e.g., SGB, NGB, RGB)
+	AllowedLocations []types.Location `json:"allowedLocations"` // Computed from BUs or admin override
 	jwt.RegisteredClaims
 }
 
@@ -54,12 +57,14 @@ func Middleware(next http.Handler) http.Handler {
 		skipAuth := os.Getenv("SKIP_AUTH")
 		if skipAuth == "true" {
 			log.Println("[Auth] SKIP_AUTH enabled - bypassing authentication")
-			// Create a default dev user
+			// Create a default dev user with admin role (sees all locations)
 			ctx := context.WithValue(r.Context(), UserContextKey, &Claims{
-				Email:  "dev@monti.local",
-				Name:   "Dev User",
-				Role:   "admin",
-				Groups: []string{"developers", "monti-admins"},
+				Email:            "dev@monti.local",
+				Name:             "Dev User",
+				Role:             "admin",
+				Groups:           []string{"developers", "monti-admins"},
+				BusinessUnits:    []string{}, // Admin doesn't need specific BUs
+				AllowedLocations: types.AllLocations,
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -143,6 +148,10 @@ func validateToken(tokenString string) (*Claims, error) {
 	// Extract groups
 	claims.Groups = extractGroupsFromMapClaims(mapClaims)
 
+	// Extract business units from groups and compute allowed locations
+	claims.BusinessUnits = extractBusinessUnits(claims.Groups)
+	claims.AllowedLocations = computeAllowedLocations(claims.Role, claims.BusinessUnits)
+
 	// Extract standard claims
 	if sub, ok := mapClaims["sub"].(string); ok {
 		claims.Subject = sub
@@ -161,7 +170,8 @@ func validateToken(tokenString string) (*Claims, error) {
 	// In production, you should verify against OIDC provider's public keys
 	env := os.Getenv("ENV")
 	if env == "development" {
-		log.Printf("[Auth] Development mode - Token parsed: email=%s, role=%s, groups=%v", claims.Email, claims.Role, claims.Groups)
+		log.Printf("[Auth] Development mode - Token parsed: email=%s, role=%s, groups=%v, businessUnits=%v, allowedLocations=%v",
+			claims.Email, claims.Role, claims.Groups, claims.BusinessUnits, claims.AllowedLocations)
 		return claims, nil
 	}
 
@@ -309,4 +319,65 @@ func parseIssuerURL(issuer string) (string, error) {
 	// Handle container-to-container communication
 	// If issuer uses service name, it should be accessible from backend
 	return u.String(), nil
+}
+
+// extractBusinessUnits parses business unit names from group paths
+// Groups are expected in format: /business-units/SGB, /business-units/NGB, etc.
+func extractBusinessUnits(groups []string) []string {
+	var businessUnits []string
+	buPrefix := "/business-units/"
+
+	for _, group := range groups {
+		if strings.HasPrefix(group, buPrefix) {
+			bu := strings.TrimPrefix(group, buPrefix)
+			// Remove any trailing path components
+			if idx := strings.Index(bu, "/"); idx > 0 {
+				bu = bu[:idx]
+			}
+			if bu != "" {
+				businessUnits = append(businessUnits, bu)
+			}
+		}
+	}
+
+	return businessUnits
+}
+
+// computeAllowedLocations maps business units to their allowed locations
+// Admin role overrides and gets access to all locations
+// If no BUs are assigned, returns empty slice (fail secure)
+func computeAllowedLocations(role string, businessUnits []string) []types.Location {
+	// Admin role sees everything
+	if role == "admin" {
+		return types.AllLocations
+	}
+
+	// Build unique set of allowed locations from all assigned BUs
+	locationSet := make(map[types.Location]bool)
+	for _, buName := range businessUnits {
+		bu := types.BusinessUnit(buName)
+		if locations, ok := types.BULocationMapping[bu]; ok {
+			for _, loc := range locations {
+				locationSet[loc] = true
+			}
+		}
+	}
+
+	// Convert set to slice
+	var allowedLocations []types.Location
+	for loc := range locationSet {
+		allowedLocations = append(allowedLocations, loc)
+	}
+
+	return allowedLocations
+}
+
+// IsLocationAllowed checks if a location is in the allowed locations list
+func (c *Claims) IsLocationAllowed(location types.Location) bool {
+	for _, loc := range c.AllowedLocations {
+		if loc == location {
+			return true
+		}
+	}
+	return false
 }

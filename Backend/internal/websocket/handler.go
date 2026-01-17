@@ -3,6 +3,7 @@ package websocket
 import (
 	"net/http"
 
+	"github.com/dennisdiepolder/monti/backend/internal/auth"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -36,6 +37,9 @@ func NewHandler(hub *Hub, cfg *config.Config, logger zerolog.Logger) *Handler {
 
 // ServeHTTP handles WebSocket upgrade requests
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Extract user claims from context (set by auth middleware)
+	claims, _ := auth.GetUserFromContext(r.Context())
+
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -43,8 +47,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create new client
-	client := NewClient(h.hub, conn, h.config, h.logger)
+	// Create new client with claims for RBAC filtering
+	client := NewClient(h.hub, conn, h.config, h.logger, claims)
+
+	// Log connection with user info
+	if claims != nil {
+		h.logger.Info().
+			Str("user", claims.Email).
+			Str("role", claims.Role).
+			Strs("business_units", claims.BusinessUnits).
+			Int("allowed_locations", len(claims.AllowedLocations)).
+			Msg("WebSocket client connected with RBAC context")
+	}
 
 	// Register client with hub
 	h.hub.register <- client
