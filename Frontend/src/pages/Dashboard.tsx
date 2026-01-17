@@ -2,7 +2,9 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { ConnectionStatus } from '../components/ConnectionStatus'
 import { WidgetDisplay } from '../components/WidgetDisplay'
 import { AgentModal } from '../components/AgentModal'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { Widget, Location, AgentInfo, AgentState, Department } from '../types'
 import { useState, useEffect } from 'react'
 
@@ -20,24 +22,39 @@ const formatSeconds = (seconds: number): string => {
 }
 
 // KPI Card component
-const KPICard = ({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) => (
+interface KPICardProps {
+  label: string
+  value: string
+  highlight?: boolean
+  colors: {
+    background: string
+    border: string
+    text: string
+    textSecondary: string
+    highlightBg: string
+    highlightBorder: string
+  }
+}
+
+const KPICard = ({ label, value, highlight = false, colors }: KPICardProps) => (
   <div
     style={{
-      backgroundColor: highlight ? '#f0f9ff' : '#f9fafb',
+      backgroundColor: highlight ? colors.highlightBg : colors.background,
       borderRadius: '6px',
       padding: '10px',
-      border: highlight ? '1px solid #bae6fd' : '1px solid #e5e7eb',
+      border: highlight ? `1px solid ${colors.highlightBorder}` : `1px solid ${colors.border}`,
     }}
   >
-    <div style={{ fontSize: '9px', color: '#6b7280', marginBottom: '2px', textTransform: 'uppercase' }}>
+    <div style={{ fontSize: '9px', color: colors.textSecondary, marginBottom: '2px', textTransform: 'uppercase' }}>
       {label}
     </div>
-    <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827' }}>{value}</div>
+    <div style={{ fontSize: '14px', fontWeight: '700', color: colors.text }}>{value}</div>
   </div>
 )
 
 export const Dashboard = () => {
   const { user, logout, isAuthenticated } = useAuth()
+  const { colors } = useTheme()
   const { data, connectionState, error } = useWebSocket(WS_URL, { enabled: isAuthenticated })
   const [widgets, setWidgets] = useState<Map<string, Widget>>(new Map())
   const [selectedCity, setSelectedCity] = useState<Location | 'all'>('all')
@@ -150,7 +167,7 @@ export const Dashboard = () => {
     <div
       style={{
         minHeight: '100vh',
-        backgroundColor: '#f9fafb',
+        backgroundColor: colors.background,
         padding: '16px',
       }}
     >
@@ -174,7 +191,7 @@ export const Dashboard = () => {
               style={{
                 fontSize: '24px',
                 fontWeight: '700',
-                color: '#111827',
+                color: colors.text,
                 margin: 0,
               }}
             >
@@ -189,16 +206,17 @@ export const Dashboard = () => {
               gap: '12px',
             }}
           >
+            <ThemeToggle />
             {user && (
               <>
                 <div
                   style={{
                     fontSize: '12px',
-                    color: '#6b7280',
+                    color: colors.textSecondary,
                     textAlign: 'right',
                   }}
                 >
-                  <div style={{ fontWeight: '600', color: '#111827' }}>
+                  <div style={{ fontWeight: '600', color: colors.text }}>
                     {user.name}
                   </div>
                   <div style={{ fontSize: '11px' }}>
@@ -209,8 +227,8 @@ export const Dashboard = () => {
                   onClick={handleLogout}
                   style={{
                     padding: '6px 12px',
-                    backgroundColor: '#f3f4f6',
-                    color: '#374151',
+                    backgroundColor: colors.surfaceHover,
+                    color: colors.text,
                     border: 'none',
                     borderRadius: '4px',
                     fontSize: '12px',
@@ -230,11 +248,11 @@ export const Dashboard = () => {
           <div
             style={{
               padding: '12px',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
+              backgroundColor: colors.errorBg,
+              border: `1px solid ${colors.errorBorder}`,
               borderRadius: '6px',
               marginBottom: '12px',
-              color: '#991b1b',
+              color: colors.error,
               fontSize: '12px',
               display: 'flex',
               justifyContent: 'space-between',
@@ -249,7 +267,7 @@ export const Dashboard = () => {
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#991b1b',
+                color: colors.error,
                 cursor: 'pointer',
                 fontSize: '18px',
                 padding: '0 4px',
@@ -279,8 +297,8 @@ export const Dashboard = () => {
                 fontSize: '13px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                backgroundColor: selectedView === view ? '#3b82f6' : '#f3f4f6',
-                color: selectedView === view ? 'white' : '#374151',
+                backgroundColor: selectedView === view ? colors.primary : colors.surfaceHover,
+                color: selectedView === view ? 'white' : colors.text,
                 transition: 'all 0.2s',
               }}
             >
@@ -296,7 +314,7 @@ export const Dashboard = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '16px',
-            backgroundColor: 'white',
+            backgroundColor: colors.surface,
             padding: '8px 12px',
             borderRadius: '6px',
             boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
@@ -308,7 +326,7 @@ export const Dashboard = () => {
               style={{
                 fontSize: '12px',
                 fontWeight: '600',
-                color: '#374151',
+                color: colors.text,
               }}
             >
               Search:
@@ -321,10 +339,12 @@ export const Dashboard = () => {
               style={{
                 padding: '4px 10px',
                 borderRadius: '4px',
-                border: '1px solid #e5e7eb',
+                border: `1px solid ${colors.border}`,
                 fontSize: '11px',
                 width: '120px',
                 outline: 'none',
+                backgroundColor: colors.surface,
+                color: colors.text,
               }}
             />
             {searchQuery && (
@@ -336,8 +356,8 @@ export const Dashboard = () => {
                   border: 'none',
                   fontSize: '11px',
                   cursor: 'pointer',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
+                  backgroundColor: colors.surfaceHover,
+                  color: colors.text,
                 }}
               >
                 Clear
@@ -346,14 +366,14 @@ export const Dashboard = () => {
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb' }} />
+          <div style={{ width: '1px', height: '24px', backgroundColor: colors.border }} />
 
           {/* City Filter */}
           <span
             style={{
               fontSize: '12px',
               fontWeight: '600',
-              color: '#374151',
+              color: colors.text,
             }}
           >
             City:
@@ -369,8 +389,8 @@ export const Dashboard = () => {
                 fontWeight: '500',
                 cursor: 'pointer',
                 backgroundColor:
-                  selectedCity === 'all' ? '#3b82f6' : '#f3f4f6',
-                color: selectedCity === 'all' ? 'white' : '#374151',
+                  selectedCity === 'all' ? colors.primary : colors.surfaceHover,
+                color: selectedCity === 'all' ? 'white' : colors.text,
                 transition: 'all 0.2s',
               }}
             >
@@ -389,8 +409,8 @@ export const Dashboard = () => {
                     fontWeight: '500',
                     cursor: 'pointer',
                     backgroundColor:
-                      selectedCity === city ? '#3b82f6' : '#f3f4f6',
-                    color: selectedCity === city ? 'white' : '#374151',
+                      selectedCity === city ? colors.primary : colors.surfaceHover,
+                    color: selectedCity === city ? 'white' : colors.text,
                     transition: 'all 0.2s',
                   }}
                 >
@@ -407,7 +427,7 @@ export const Dashboard = () => {
             style={{
               textAlign: 'center',
               padding: '48px',
-              backgroundColor: 'white',
+              backgroundColor: colors.surface,
               borderRadius: '12px',
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
             }}
@@ -424,7 +444,7 @@ export const Dashboard = () => {
               style={{
                 fontSize: '18px',
                 fontWeight: '600',
-                color: '#111827',
+                color: colors.text,
                 marginBottom: '8px',
               }}
             >
@@ -432,7 +452,7 @@ export const Dashboard = () => {
             </h3>
             <p
               style={{
-                color: '#6b7280',
+                color: colors.textSecondary,
                 fontSize: '14px',
               }}
             >
@@ -474,12 +494,12 @@ export const Dashboard = () => {
                       ) : (
                         <div
                           style={{
-                            backgroundColor: 'white',
+                            backgroundColor: colors.surface,
                             borderRadius: '8px',
                             padding: '12px',
                             boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
                             textAlign: 'center',
-                            color: '#9ca3af',
+                            color: colors.textSecondary,
                             height: '100%',
                           }}
                         >
@@ -487,7 +507,7 @@ export const Dashboard = () => {
                             style={{
                               fontSize: '16px',
                               fontWeight: '600',
-                              color: '#111827',
+                              color: colors.text,
                               marginBottom: '8px',
                             }}
                           >
@@ -509,12 +529,12 @@ export const Dashboard = () => {
                     return (
                       <div
                         style={{
-                          backgroundColor: 'white',
+                          backgroundColor: colors.surface,
                           borderRadius: '8px',
                           padding: '12px',
                           boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
                           textAlign: 'center',
-                          color: '#9ca3af',
+                          color: colors.textSecondary,
                           flex: 1,
                         }}
                       >
@@ -522,7 +542,7 @@ export const Dashboard = () => {
                           style={{
                             fontSize: '16px',
                             fontWeight: '600',
-                            color: '#111827',
+                            color: colors.text,
                             marginBottom: '8px',
                           }}
                         >
@@ -554,13 +574,22 @@ export const Dashboard = () => {
                     ? agents.reduce((sum, a) => sum + (a.kpis?.avgHandleTime || 0), 0) / agents.length
                     : 0
 
+                  const kpiColors = {
+                    background: colors.background,
+                    border: colors.border,
+                    text: colors.text,
+                    textSecondary: colors.textSecondary,
+                    highlightBg: colors.highlightBg,
+                    highlightBorder: colors.highlightBorder,
+                  }
+
                   return (
                     <>
                       {/* KPIs Panel */}
                       <div
                         style={{
                           width: '280px',
-                          backgroundColor: 'white',
+                          backgroundColor: colors.surface,
                           borderRadius: '8px',
                           padding: '16px',
                           boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
@@ -569,18 +598,18 @@ export const Dashboard = () => {
                           gap: '12px',
                         }}
                       >
-                        <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '600', color: colors.text, margin: 0 }}>
                           Department KPIs
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          <KPICard label="Total Calls" value={totalCalls.toString()} />
-                          <KPICard label="Avg Handle Time" value={formatSeconds(avgHandleTime)} />
-                          <KPICard label="Occupancy" value={`${avgOccupancy.toFixed(1)}%`} highlight />
-                          <KPICard label="Adherence" value={`${avgAdherence.toFixed(1)}%`} highlight />
-                          <KPICard label="CSAT" value={`${avgCSAT.toFixed(2)}/5`} highlight />
-                          <KPICard label="FCR" value={`${avgFCR.toFixed(1)}%`} highlight />
-                          <KPICard label="Total Holds" value={totalHolds.toString()} />
-                          <KPICard label="Transfers" value={totalTransfers.toString()} />
+                          <KPICard label="Total Calls" value={totalCalls.toString()} colors={kpiColors} />
+                          <KPICard label="Avg Handle Time" value={formatSeconds(avgHandleTime)} colors={kpiColors} />
+                          <KPICard label="Occupancy" value={`${avgOccupancy.toFixed(1)}%`} highlight colors={kpiColors} />
+                          <KPICard label="Adherence" value={`${avgAdherence.toFixed(1)}%`} highlight colors={kpiColors} />
+                          <KPICard label="CSAT" value={`${avgCSAT.toFixed(2)}/5`} highlight colors={kpiColors} />
+                          <KPICard label="FCR" value={`${avgFCR.toFixed(1)}%`} highlight colors={kpiColors} />
+                          <KPICard label="Total Holds" value={totalHolds.toString()} colors={kpiColors} />
+                          <KPICard label="Transfers" value={totalTransfers.toString()} colors={kpiColors} />
                         </div>
                       </div>
                       {/* Agent List */}
@@ -604,7 +633,7 @@ export const Dashboard = () => {
                 marginTop: '8px',
                 textAlign: 'center',
                 fontSize: '11px',
-                color: '#9ca3af',
+                color: colors.textSecondary,
               }}
             >
               <p>

@@ -1,10 +1,13 @@
 import { ConnectionState } from '../types'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface ConnectionStatusProps {
   state: ConnectionState
 }
 
 export const ConnectionStatus = ({ state }: ConnectionStatusProps) => {
+  const { colors } = useTheme()
+
   const getStatusColor = () => {
     switch (state) {
       case ConnectionState.OPEN:
@@ -42,10 +45,11 @@ export const ConnectionStatus = ({ state }: ConnectionStatusProps) => {
         alignItems: 'center',
         gap: '8px',
         padding: '8px 16px',
-        backgroundColor: '#f3f4f6',
+        backgroundColor: colors.surfaceHover,
         borderRadius: '8px',
         fontSize: '14px',
         fontWeight: '500',
+        color: colors.text,
       }}
     >
       <div

@@ -23,26 +23,26 @@ This document describes the rough development plan for **MONTI**, the live monit
 ---
 
 ## 3️⃣ Data Model & Simulation
-- [ ] Database schema (Agents, Teams, Locations, Status)
-- [ ] Cache structure (Redis or in-memory)
-- [ ] Fake agent generator (2000 agents, random teams/locations)
-- [ ] API endpoints for streaming data
+- [x] Database schema (Agents, Teams, Locations, Status)
+- [x] Cache structure (Redis or in-memory)
+- [x] Fake agent generator (2000 agents, random teams/locations)
+- [x] API endpoints for streaming data
 
 ---
 
 ## 4️⃣ Backend Core
 - [x] WebSocket service for live updates
-- [ ] Aggregation & grouping in cache
-- [ ] REST/GraphQL endpoints for initial data
-- [ ] Performance tests with 2000 agents
+- [x] Aggregation & grouping in cache
+- [x] REST/GraphQL endpoints for initial data
+- [x] Performance tests with 2000 agents
 
 ---
 
 N## 5️⃣ Frontend
 - [x] Dashboard basic layout
 - [x] Implement WebSocket client
-- [ ] Grouped display of agents
-- [ ] Filter & sorting by teams / locations
+- [x] Grouped display of agents
+- [x] Filter & sorting by teams / locations
 
 ---
 

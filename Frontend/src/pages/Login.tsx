@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 
 export const Login = () => {
   const { login, isAuthenticated } = useAuth()
+  const { colors } = useTheme()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -24,12 +26,12 @@ export const Login = () => {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        backgroundColor: '#f9fafb',
+        backgroundColor: colors.background,
       }}
     >
       <div
         style={{
-          backgroundColor: 'white',
+          backgroundColor: colors.surface,
           padding: '48px',
           borderRadius: '12px',
           boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
@@ -42,14 +44,14 @@ export const Login = () => {
             fontSize: '36px',
             fontWeight: '700',
             marginBottom: '16px',
-            color: '#111827',
+            color: colors.text,
           }}
         >
           MONTI
         </h1>
         <p
           style={{
-            color: '#6b7280',
+            color: colors.textSecondary,
             marginBottom: '32px',
             fontSize: '16px',
           }}
@@ -60,7 +62,7 @@ export const Login = () => {
         <button
           onClick={handleLogin}
           style={{
-            backgroundColor: '#3b82f6',
+            backgroundColor: colors.primary,
             color: 'white',
             padding: '12px 32px',
             borderRadius: '8px',
@@ -72,10 +74,10 @@ export const Login = () => {
             transition: 'background-color 0.2s',
           }}
           onMouseOver={(e) => {
-            e.currentTarget.style.backgroundColor = '#2563eb'
+            e.currentTarget.style.backgroundColor = colors.primaryHover
           }}
           onMouseOut={(e) => {
-            e.currentTarget.style.backgroundColor = '#3b82f6'
+            e.currentTarget.style.backgroundColor = colors.primary
           }}
         >
           Sign in with SSO
@@ -85,7 +87,7 @@ export const Login = () => {
           style={{
             marginTop: '24px',
             fontSize: '12px',
-            color: '#9ca3af',
+            color: colors.textSecondary,
           }}
         >
           Development Mode

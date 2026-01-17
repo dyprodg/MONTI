@@ -1,4 +1,5 @@
 import { AgentInfo, AgentState } from '../types'
+import { useTheme, ThemeColors } from '../contexts/ThemeContext'
 
 interface AgentModalProps {
   agent: AgentInfo
@@ -59,23 +60,25 @@ const KPICard = ({
   label,
   value,
   highlight = false,
+  colors,
 }: {
   label: string
   value: string
   highlight?: boolean
+  colors: ThemeColors
 }) => (
   <div
     style={{
-      backgroundColor: highlight ? '#f0f9ff' : '#f9fafb',
+      backgroundColor: highlight ? colors.highlightBg : colors.background,
       borderRadius: '8px',
       padding: '12px',
-      border: highlight ? '1px solid #bae6fd' : '1px solid #e5e7eb',
+      border: highlight ? `1px solid ${colors.highlightBorder}` : `1px solid ${colors.border}`,
     }}
   >
     <div
       style={{
         fontSize: '10px',
-        color: '#6b7280',
+        color: colors.textSecondary,
         marginBottom: '4px',
         textTransform: 'uppercase',
         letterSpacing: '0.5px',
@@ -87,7 +90,7 @@ const KPICard = ({
       style={{
         fontSize: '16px',
         fontWeight: '700',
-        color: '#111827',
+        color: colors.text,
       }}
     >
       {value}
@@ -96,6 +99,7 @@ const KPICard = ({
 )
 
 export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
+  const { colors } = useTheme()
   const handleLogoutAgent = () => {
     const confirmed = window.confirm(
       `This would log out agent ${agent.agentId}.\n\n` +
@@ -134,7 +138,7 @@ export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          backgroundColor: 'white',
+          backgroundColor: colors.surface,
           borderRadius: '12px',
           padding: '24px',
           width: '90%',
@@ -160,7 +164,7 @@ export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
                 margin: 0,
                 fontSize: '20px',
                 fontWeight: '700',
-                color: '#111827',
+                color: colors.text,
               }}
             >
               {agent.agentId}
@@ -191,11 +195,11 @@ export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
                     backgroundColor: STATE_COLORS[agent.state],
                   }}
                 />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#111827' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: colors.text }}>
                   {STATE_LABELS[agent.state]}
                 </span>
               </div>
-              <span style={{ fontSize: '12px', color: '#6b7280' }}>
+              <span style={{ fontSize: '12px', color: colors.textSecondary }}>
                 {agent.department.charAt(0).toUpperCase() + agent.department.slice(1)} |{' '}
                 {agent.team}
               </span>
@@ -210,7 +214,7 @@ export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
               border: 'none',
               fontSize: '24px',
               cursor: 'pointer',
-              color: '#6b7280',
+              color: colors.textSecondary,
               padding: '0',
               lineHeight: '1',
             }}
@@ -229,29 +233,29 @@ export const AgentModal = ({ agent, onClose }: AgentModalProps) => {
           }}
         >
           {/* Call Metrics */}
-          <KPICard label="Total Calls" value={kpis.totalCalls.toString()} />
-          <KPICard label="Avg Call Duration" value={formatTime(kpis.avgCallDuration)} />
-          <KPICard label="Avg Handle Time" value={formatTime(kpis.avgHandleTime)} />
+          <KPICard label="Total Calls" value={kpis.totalCalls.toString()} colors={colors} />
+          <KPICard label="Avg Call Duration" value={formatTime(kpis.avgCallDuration)} colors={colors} />
+          <KPICard label="Avg Handle Time" value={formatTime(kpis.avgHandleTime)} colors={colors} />
 
           {/* ACW Metrics */}
-          <KPICard label="ACW Sessions" value={kpis.acwCount.toString()} />
-          <KPICard label="Total ACW Time" value={formatTime(kpis.acwTime)} />
-          <KPICard label="Break Time" value={formatTime(kpis.breakTime)} />
+          <KPICard label="ACW Sessions" value={kpis.acwCount.toString()} colors={colors} />
+          <KPICard label="Total ACW Time" value={formatTime(kpis.acwTime)} colors={colors} />
+          <KPICard label="Break Time" value={formatTime(kpis.breakTime)} colors={colors} />
 
           {/* Hold/Transfer */}
-          <KPICard label="Hold Count" value={kpis.holdCount.toString()} />
-          <KPICard label="Total Hold Time" value={formatTime(kpis.holdTime)} />
-          <KPICard label="Transfers" value={kpis.transferCount.toString()} />
+          <KPICard label="Hold Count" value={kpis.holdCount.toString()} colors={colors} />
+          <KPICard label="Total Hold Time" value={formatTime(kpis.holdTime)} colors={colors} />
+          <KPICard label="Transfers" value={kpis.transferCount.toString()} colors={colors} />
 
           {/* Conference/Login */}
-          <KPICard label="Conferences" value={kpis.conferenceCount.toString()} />
-          <KPICard label="Login Duration" value={formatTime(kpis.loginTime)} />
-          <KPICard label="Occupancy" value={formatPercent(kpis.occupancy)} highlight />
+          <KPICard label="Conferences" value={kpis.conferenceCount.toString()} colors={colors} />
+          <KPICard label="Login Duration" value={formatTime(kpis.loginTime)} colors={colors} />
+          <KPICard label="Occupancy" value={formatPercent(kpis.occupancy)} highlight colors={colors} />
 
           {/* Performance */}
-          <KPICard label="Adherence" value={formatPercent(kpis.adherence)} highlight />
-          <KPICard label="FCR" value={formatPercent(kpis.firstCallResolution)} highlight />
-          <KPICard label="CSAT" value={formatCSAT(kpis.customerSatisfaction)} highlight />
+          <KPICard label="Adherence" value={formatPercent(kpis.adherence)} highlight colors={colors} />
+          <KPICard label="FCR" value={formatPercent(kpis.firstCallResolution)} highlight colors={colors} />
+          <KPICard label="CSAT" value={formatCSAT(kpis.customerSatisfaction)} highlight colors={colors} />
         </div>
 
         {/* Log Out Button */}

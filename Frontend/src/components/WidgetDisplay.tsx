@@ -1,4 +1,5 @@
 import { Widget, AgentState, AgentInfo } from '../types'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface WidgetDisplayProps {
   widget: Widget
@@ -57,6 +58,7 @@ const formatDuration = (stateStart: string): string => {
 }
 
 export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilter }: WidgetDisplayProps) => {
+  const { colors } = useTheme()
   const title =
     widget.type === 'global_overview'
       ? 'Global Overview'
@@ -79,7 +81,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
   return (
     <div
       style={{
-        backgroundColor: 'white',
+        backgroundColor: colors.surface,
         borderRadius: '8px',
         padding: '12px',
         boxShadow: '0 2px 4px rgb(0 0 0 / 0.1)',
@@ -96,7 +98,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
           style={{
             fontSize: '16px',
             fontWeight: '600',
-            color: '#111827',
+            color: colors.text,
             margin: 0,
           }}
         >
@@ -105,7 +107,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
         <div
           style={{
             fontSize: '11px',
-            color: '#6b7280',
+            color: colors.textSecondary,
           }}
         >
           {widget.summary.totalAgents} agents
@@ -151,7 +153,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
               style={{
                 fontSize: '10px',
                 fontWeight: '600',
-                color: '#111827',
+                color: colors.text,
               }}
             >
               {STATE_LABELS[state as AgentState]}: {count}
@@ -167,7 +169,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
             flex: 1,
             minHeight: 0,
             overflowY: 'auto',
-            border: '1px solid #e5e7eb',
+            border: `1px solid ${colors.border}`,
             borderRadius: '4px',
           }}
         >
@@ -181,8 +183,8 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
             <thead>
               <tr
                 style={{
-                  backgroundColor: '#f9fafb',
-                  borderBottom: '1px solid #e5e7eb',
+                  backgroundColor: colors.surfaceHover,
+                  borderBottom: `1px solid ${colors.border}`,
                   position: 'sticky',
                   top: 0,
                 }}
@@ -192,7 +194,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                     padding: '4px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
+                    color: colors.text,
                     fontSize: '8px',
                   }}
                 >
@@ -203,7 +205,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                     padding: '4px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
+                    color: colors.text,
                     fontSize: '8px',
                   }}
                 >
@@ -214,7 +216,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                     padding: '4px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
+                    color: colors.text,
                     fontSize: '8px',
                   }}
                 >
@@ -225,7 +227,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                     padding: '4px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
+                    color: colors.text,
                     fontSize: '8px',
                   }}
                 >
@@ -239,17 +241,17 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                   key={agent.agentId}
                   onClick={() => onAgentClick(agent)}
                   style={{
-                    borderBottom: '1px solid #f3f4f6',
+                    borderBottom: `1px solid ${colors.border}`,
                     cursor: 'pointer',
                     transition: 'background-color 0.15s',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9fafb')}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = colors.surfaceHover)}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <td
                     style={{
                       padding: '3px 6px',
-                      color: '#111827',
+                      color: colors.text,
                       fontWeight: '500',
                       fontSize: '9px',
                     }}
@@ -280,7 +282,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                         style={{
                           fontSize: '8px',
                           fontWeight: '500',
-                          color: '#111827',
+                          color: colors.text,
                         }}
                       >
                         {STATE_LABELS[agent.state]}
@@ -290,7 +292,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                   <td
                     style={{
                       padding: '3px 6px',
-                      color: '#6b7280',
+                      color: colors.textSecondary,
                       fontFamily: 'monospace',
                       fontSize: '8px',
                     }}
@@ -300,7 +302,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
                   <td
                     style={{
                       padding: '3px 6px',
-                      color: '#6b7280',
+                      color: colors.textSecondary,
                       fontSize: '8px',
                     }}
                   >
@@ -317,7 +319,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
           style={{
             textAlign: 'center',
             padding: '16px',
-            color: '#9ca3af',
+            color: colors.textSecondary,
             fontSize: '11px',
           }}
         >

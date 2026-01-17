@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { Login } from './pages/Login'
 import { Callback } from './pages/Callback'
 import { Dashboard } from './pages/Dashboard'
@@ -7,6 +8,7 @@ import { ReactNode } from 'react'
 
 const ProtectedRoute = ({ children }: { children: ReactNode }) => {
   const { isAuthenticated, loading } = useAuth()
+  const { colors } = useTheme()
 
   if (loading) {
     return (
@@ -16,12 +18,12 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: '100vh',
-          backgroundColor: '#f9fafb',
+          backgroundColor: colors.background,
         }}
       >
         <div
           style={{
-            backgroundColor: 'white',
+            backgroundColor: colors.surface,
             padding: '32px',
             borderRadius: '12px',
             boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
@@ -32,14 +34,14 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
             style={{
               width: '48px',
               height: '48px',
-              border: '4px solid #e5e7eb',
-              borderTop: '4px solid #3b82f6',
+              border: `4px solid ${colors.border}`,
+              borderTop: `4px solid ${colors.primary}`,
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
               margin: '0 auto 16px',
             }}
           />
-          <p style={{ color: '#6b7280', fontSize: '16px' }}>Loading...</p>
+          <p style={{ color: colors.textSecondary, fontSize: '16px' }}>Loading...</p>
           <style>
             {`
               @keyframes spin {
@@ -63,20 +65,22 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/callback" element={<Callback />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/callback" element={<Callback />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }
