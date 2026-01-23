@@ -16,41 +16,199 @@ import (
 
 // Simulator manages agent state transitions
 type Simulator struct {
-	agents       []types.Agent
-	activeAgents map[string]bool
-	mu           sync.RWMutex
-	rng          *rand.Rand
-	logger       zerolog.Logger
-	backendURL   string
-	httpClient   *http.Client
-	eventsSent   int64
+	agents        []types.Agent
+	activeAgents  map[string]bool
+	agentCancels  map[string]context.CancelFunc
+	mu            sync.RWMutex
+	rng           *rand.Rand
+	logger        zerolog.Logger
+	backendURL    string
+	httpClient    *http.Client
+	eventsSent    int64
+	backendErrors int64
+	running       bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+
+	// Additional metrics
+	startTime          time.Time
+	stateTransitions   int64
+	stateChangeCounts  map[types.AgentState]int64
+	stateMu            sync.RWMutex
 }
 
 // NewSimulator creates a new agent simulator
 func NewSimulator(agents []types.Agent, backendURL string, logger zerolog.Logger) *Simulator {
+	// Optimize HTTP transport for high concurrency (2000 agents)
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		MaxConnsPerHost:     200,
+		IdleConnTimeout:     90 * time.Second,
+	}
+
 	return &Simulator{
-		agents:       agents,
-		activeAgents: make(map[string]bool),
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
-		logger:       logger,
-		backendURL:   backendURL,
+		agents:            agents,
+		activeAgents:      make(map[string]bool),
+		agentCancels:      make(map[string]context.CancelFunc),
+		rng:               rand.New(rand.NewSource(time.Now().UnixNano())),
+		logger:            logger,
+		backendURL:        backendURL,
+		startTime:         time.Now(),
+		stateChangeCounts: make(map[types.AgentState]int64),
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
+			Transport: transport,
 		},
 	}
 }
 
 // Start begins simulating agent state changes
 func (s *Simulator) Start(ctx context.Context, numActive int) {
+	s.mu.Lock()
+	s.running = true
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.mu.Unlock()
+
 	// Activate the specified number of agents
 	s.activateAgents(numActive)
 
 	// Start goroutine for each active agent
+	s.mu.Lock()
 	for id := range s.activeAgents {
-		go s.simulateAgent(ctx, id)
+		agentCtx, agentCancel := context.WithCancel(s.ctx)
+		s.agentCancels[id] = agentCancel
+		go s.simulateAgent(agentCtx, id)
 	}
+	s.mu.Unlock()
 
 	s.logger.Info().Int("active_agents", numActive).Msg("agent simulation started")
+}
+
+// Stop stops all active agents
+func (s *Simulator) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.running = false
+
+	// Cancel all agent goroutines
+	for id, cancel := range s.agentCancels {
+		cancel()
+		delete(s.agentCancels, id)
+	}
+
+	// Clear active agents
+	s.activeAgents = make(map[string]bool)
+
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	s.logger.Info().Msg("all agents stopped")
+}
+
+// Scale dynamically adjusts the number of active agents
+func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if targetAgents > len(s.agents) {
+		targetAgents = len(s.agents)
+	}
+	if targetAgents < 0 {
+		targetAgents = 0
+	}
+
+	currentCount := len(s.activeAgents)
+	s.logger.Info().
+		Int("current", currentCount).
+		Int("target", targetAgents).
+		Msg("scaling agents")
+
+	if targetAgents > currentCount {
+		// Scale up: add more agents
+		needed := targetAgents - currentCount
+
+		// Get inactive agents
+		var inactiveIndices []int
+		for i := range s.agents {
+			if !s.activeAgents[s.agents[i].ID] {
+				inactiveIndices = append(inactiveIndices, i)
+			}
+		}
+
+		// Shuffle and take needed
+		s.rng.Shuffle(len(inactiveIndices), func(i, j int) {
+			inactiveIndices[i], inactiveIndices[j] = inactiveIndices[j], inactiveIndices[i]
+		})
+
+		if needed > len(inactiveIndices) {
+			needed = len(inactiveIndices)
+		}
+
+		// Ensure we have a valid context
+		if s.ctx == nil {
+			s.ctx, s.cancel = context.WithCancel(ctx)
+			s.running = true
+		}
+
+		for i := 0; i < needed; i++ {
+			idx := inactiveIndices[i]
+			agent := &s.agents[idx]
+			agent.State = types.StateAvailable
+			agent.StateStart = time.Now()
+			agent.LastUpdate = time.Now()
+			agent.LoginTime = time.Now()
+			agent.KPIs = s.generateInitialKPIs()
+			s.activeAgents[agent.ID] = true
+
+			// Start agent goroutine
+			agentCtx, agentCancel := context.WithCancel(s.ctx)
+			s.agentCancels[agent.ID] = agentCancel
+			go s.simulateAgent(agentCtx, agent.ID)
+
+			// Send initial state event
+			go s.sendEvent(*agent, 0.0)
+		}
+
+	} else if targetAgents < currentCount {
+		// Scale down: remove agents
+		toRemove := currentCount - targetAgents
+
+		// Get list of active agent IDs
+		var activeIDs []string
+		for id := range s.activeAgents {
+			activeIDs = append(activeIDs, id)
+		}
+
+		// Randomly select agents to deactivate
+		s.rng.Shuffle(len(activeIDs), func(i, j int) {
+			activeIDs[i], activeIDs[j] = activeIDs[j], activeIDs[i]
+		})
+
+		for i := 0; i < toRemove && i < len(activeIDs); i++ {
+			id := activeIDs[i]
+			if cancel, ok := s.agentCancels[id]; ok {
+				cancel()
+				delete(s.agentCancels, id)
+			}
+			delete(s.activeAgents, id)
+		}
+	}
+
+	s.logger.Info().
+		Int("active_agents", len(s.activeAgents)).
+		Msg("scaling complete")
+
+	return nil
+}
+
+// IsRunning returns whether the simulation is running
+func (s *Simulator) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.running
 }
 
 // activateAgents sets initial agents to available state
@@ -138,6 +296,12 @@ func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) 
 	}
 	s.mu.Unlock()
 
+	// Track state transition metrics
+	atomic.AddInt64(&s.stateTransitions, 1)
+	s.stateMu.Lock()
+	s.stateChangeCounts[newState]++
+	s.stateMu.Unlock()
+
 	// Send event to backend (non-blocking)
 	go s.sendEvent(agent, stateDuration)
 }
@@ -158,6 +322,7 @@ func (s *Simulator) sendEvent(agent types.Agent, stateDuration float64) {
 	data, err := json.Marshal(event)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("failed to marshal event")
+		atomic.AddInt64(&s.backendErrors, 1)
 		return
 	}
 
@@ -168,12 +333,14 @@ func (s *Simulator) sendEvent(agent types.Agent, stateDuration float64) {
 	)
 	if err != nil {
 		s.logger.Debug().Err(err).Str("agent_id", agent.ID).Msg("failed to send event")
+		atomic.AddInt64(&s.backendErrors, 1)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		s.logger.Debug().Int("status", resp.StatusCode).Str("agent_id", agent.ID).Msg("backend returned non-200 status")
+		atomic.AddInt64(&s.backendErrors, 1)
 		return
 	}
 
@@ -291,6 +458,67 @@ func (s *Simulator) GetActiveCount() int {
 // GetEventsSent returns the total number of events sent to backend
 func (s *Simulator) GetEventsSent() int64 {
 	return atomic.LoadInt64(&s.eventsSent)
+}
+
+// GetBackendErrors returns the total number of backend errors
+func (s *Simulator) GetBackendErrors() int64 {
+	return atomic.LoadInt64(&s.backendErrors)
+}
+
+// GetMetrics returns Prometheus-compatible metrics
+func (s *Simulator) GetMetrics() map[string]interface{} {
+	s.mu.RLock()
+	activeCount := len(s.activeAgents)
+	totalAgents := len(s.agents)
+
+	// Count agents by state, department, and location
+	stateCount := make(map[types.AgentState]int)
+	deptCount := make(map[types.Department]int)
+	locCount := make(map[types.Location]int)
+
+	for _, agent := range s.agents {
+		if s.activeAgents[agent.ID] {
+			stateCount[agent.State]++
+			deptCount[agent.Department]++
+			locCount[agent.Location]++
+		}
+	}
+	s.mu.RUnlock()
+
+	// Calculate events per second
+	uptime := time.Since(s.startTime).Seconds()
+	eventsPerSecond := float64(0)
+	if uptime > 0 {
+		eventsPerSecond = float64(atomic.LoadInt64(&s.eventsSent)) / uptime
+	}
+
+	metrics := map[string]interface{}{
+		"agentsim_active_agents":        activeCount,
+		"agentsim_total_agents":         totalAgents,
+		"agentsim_events_sent_total":    atomic.LoadInt64(&s.eventsSent),
+		"agentsim_backend_errors_total": atomic.LoadInt64(&s.backendErrors),
+		"agentsim_state_transitions":    atomic.LoadInt64(&s.stateTransitions),
+		"agentsim_events_per_second":    eventsPerSecond,
+		"agentsim_uptime_seconds":       uptime,
+		"agentsim_running":              s.IsRunning(),
+	}
+
+	// Add state breakdown
+	for state, count := range stateCount {
+		metrics["agentsim_agents_by_state{state=\""+string(state)+"\"}"] = count
+	}
+
+	// Add department breakdown
+	for dept, count := range deptCount {
+		metrics["agentsim_agents_by_department{department=\""+string(dept)+"\"}"] = count
+	}
+
+	// Add location breakdown
+	for loc, count := range locCount {
+		metrics["agentsim_agents_by_location{location=\""+string(loc)+"\"}"] = count
+	}
+
+	return metrics
 }
 
 // generateInitialKPIs creates realistic initial KPI values for a newly logged-in agent

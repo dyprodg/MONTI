@@ -74,9 +74,81 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  agentsim:
+    build:
+      context: ./AgentSim
+      dockerfile: Dockerfile
+    container_name: monti-agentsim
+    ports:
+      - "8081:8081"
+    environment:
+      - AGENTSIM_BACKEND_URL=http://backend:8080
+      - AGENTSIM_AGENTS=2000
+      - AGENTSIM_AUTO_START=false
+      - AGENTSIM_ACTIVE_AGENTS=100
+      - AGENTSIM_CONTROL_PORT=8081
+      - AGENTSIM_LOG_LEVEL=info
+    networks:
+      - monti-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monti-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - monti-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monti-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    networks:
+      - monti-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 networks:
   monti-network:
     driver: bridge
 
 volumes:
   backend-go-cache:
+  prometheus-data:
+  grafana-data:

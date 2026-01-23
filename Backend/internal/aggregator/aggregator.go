@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
+	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/dennisdiepolder/monti/backend/internal/websocket"
 	"github.com/rs/zerolog"
@@ -34,6 +35,7 @@ func (a *Aggregator) Start(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	m := metrics.Get()
 	a.logger.Info().Msg("aggregator started")
 
 	for {
@@ -43,6 +45,8 @@ func (a *Aggregator) Start(ctx context.Context) {
 			return
 
 		case <-ticker.C:
+			cycleStart := time.Now()
+
 			// Clear recent events (we don't need them anymore)
 			events := a.cache.GetAndClear()
 
@@ -52,13 +56,18 @@ func (a *Aggregator) Start(ctx context.Context) {
 				continue
 			}
 
+			// Update agent metrics
+			m.UpdateAgentStats(allAgents)
+
 			// Create widgets from all agent states
 			widgets := a.createWidgetsFromStates(allAgents)
+			widgetCount := 0
 
 			for _, widget := range widgets {
 				data, err := json.Marshal(widget)
 				if err != nil {
 					a.logger.Error().Err(err).Msg("failed to marshal widget")
+					m.RecordAggregationError()
 					continue
 				}
 
@@ -70,7 +79,11 @@ func (a *Aggregator) Start(ctx context.Context) {
 					Msg("broadcasting widget")
 
 				a.hub.Broadcast(data)
+				widgetCount++
 			}
+
+			// Record aggregation cycle metrics
+			m.RecordAggregationCycle(time.Since(cycleStart), widgetCount)
 
 			a.logger.Debug().
 				Int("events_processed", len(events)).

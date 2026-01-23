@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
+	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/rs/zerolog"
 )
@@ -33,6 +34,8 @@ func NewReceiver(cache *cache.EventCache, stateTracker *cache.AgentStateTracker,
 
 // HandleEvent receives and caches individual agent events
 func (r *Receiver) HandleEvent(w http.ResponseWriter, req *http.Request) {
+	m := metrics.Get()
+
 	if req.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -41,15 +44,22 @@ func (r *Receiver) HandleEvent(w http.ResponseWriter, req *http.Request) {
 	var event types.AgentEvent
 	if err := json.NewDecoder(req.Body).Decode(&event); err != nil {
 		r.logger.Error().Err(err).Msg("failed to decode event")
+		m.RecordEventError()
 		http.Error(w, "invalid event", http.StatusBadRequest)
 		return
 	}
+
+	// Record metric
+	m.RecordEventReceived()
 
 	// Add event to cache
 	r.cache.Add(event)
 
 	// Update agent state tracker
 	r.stateTracker.Update(event)
+
+	// Record processed
+	m.RecordEventProcessed()
 
 	// Update stats
 	atomic.AddInt64(&r.eventsReceived, 1)

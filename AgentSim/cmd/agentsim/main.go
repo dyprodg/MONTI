@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -15,6 +16,34 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
+
+// getEnvString returns the environment variable value or fallback
+func getEnvString(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// getEnvInt returns the environment variable as int or fallback
+func getEnvInt(key string, fallback int) int {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
+	}
+	return fallback
+}
+
+// getEnvBool returns the environment variable as bool or fallback
+func getEnvBool(key string, fallback bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
+		}
+	}
+	return fallback
+}
 
 type App struct {
 	generator  *agent.Generator
@@ -28,16 +57,26 @@ type App struct {
 }
 
 func main() {
-	// CLI flags
+	// CLI flags (with env var fallbacks)
 	var (
-		controlPort = flag.String("control-port", "8081", "Control API port")
-		backendURL  = flag.String("backend-url", "http://localhost:8080", "Backend URL")
-		agentCount  = flag.Int("agents", 200, "Total number of agents to generate")
-		autoStart   = flag.Bool("auto-start", false, "Automatically start simulation")
+		controlPort  = flag.String("control-port", "8081", "Control API port")
+		backendURL   = flag.String("backend-url", "http://localhost:8080", "Backend URL")
+		agentCount   = flag.Int("agents", 200, "Total number of agents to generate")
+		autoStart    = flag.Bool("auto-start", false, "Automatically start simulation")
 		activeAgents = flag.Int("active", 100, "Number of active agents (if auto-start is true)")
-		logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+		logLevel     = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	)
 	flag.Parse()
+
+	// Environment variables override CLI flags
+	// AGENTSIM_CONTROL_PORT, AGENTSIM_BACKEND_URL, AGENTSIM_AGENTS,
+	// AGENTSIM_AUTO_START, AGENTSIM_ACTIVE_AGENTS, AGENTSIM_LOG_LEVEL
+	*controlPort = getEnvString("AGENTSIM_CONTROL_PORT", *controlPort)
+	*backendURL = getEnvString("AGENTSIM_BACKEND_URL", *backendURL)
+	*agentCount = getEnvInt("AGENTSIM_AGENTS", *agentCount)
+	*autoStart = getEnvBool("AGENTSIM_AUTO_START", *autoStart)
+	*activeAgents = getEnvInt("AGENTSIM_ACTIVE_AGENTS", *activeAgents)
+	*logLevel = getEnvString("AGENTSIM_LOG_LEVEL", *logLevel)
 
 	// Setup logger
 	level, err := zerolog.ParseLevel(*logLevel)
@@ -70,10 +109,13 @@ func main() {
 
 	// Create control API
 	app.controlAPI = control.NewAPI(logger)
+	app.controlAPI.SetTotalAgents(len(agents))
 	app.controlAPI.SetHandlers(
 		app.startSimulation,
 		app.stopSimulation,
+		app.scaleSimulation,
 		app.getStats,
+		app.getMetrics,
 	)
 
 	// Start control API
@@ -128,6 +170,9 @@ func (app *App) stopSimulation() error {
 
 	app.logger.Info().Msg("stopping simulation")
 
+	// Stop the simulator (cancels agent goroutines)
+	app.simulator.Stop()
+
 	// Cancel context to stop all goroutines
 	app.cancel()
 
@@ -137,11 +182,25 @@ func (app *App) stopSimulation() error {
 	return nil
 }
 
+func (app *App) scaleSimulation(targetAgents int) error {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	app.logger.Info().Int("target_agents", targetAgents).Msg("scaling simulation")
+
+	// Scale the simulator to the target number of agents
+	return app.simulator.Scale(app.ctx, targetAgents)
+}
+
 func (app *App) getStats() map[string]interface{} {
 	return map[string]interface{}{
 		"active_agents": app.simulator.GetActiveCount(),
 		"events_sent":   app.simulator.GetEventsSent(),
 	}
+}
+
+func (app *App) getMetrics() map[string]interface{} {
+	return app.simulator.GetMetrics()
 }
 
 func printUsage(port string) {
@@ -151,16 +210,19 @@ func printUsage(port string) {
 	fmt.Println("╚════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Println("Available endpoints:")
-	fmt.Printf("  GET  http://localhost:%s/health  - Health check\n", port)
-	fmt.Printf("  GET  http://localhost:%s/status  - Simulation status\n", port)
-	fmt.Printf("  POST http://localhost:%s/start   - Start simulation\n", port)
-	fmt.Printf("  POST http://localhost:%s/stop    - Stop simulation\n", port)
-	fmt.Printf("  GET  http://localhost:%s/config  - Get configuration\n", port)
-	fmt.Printf("  GET  http://localhost:%s/stats   - Get statistics\n", port)
+	fmt.Printf("  GET  http://localhost:%s/health   - Health check\n", port)
+	fmt.Printf("  GET  http://localhost:%s/status   - Simulation status\n", port)
+	fmt.Printf("  POST http://localhost:%s/start    - Start simulation\n", port)
+	fmt.Printf("  POST http://localhost:%s/stop     - Stop simulation\n", port)
+	fmt.Printf("  POST http://localhost:%s/scale    - Scale active agents\n", port)
+	fmt.Printf("  GET  http://localhost:%s/config   - Get configuration\n", port)
+	fmt.Printf("  GET  http://localhost:%s/stats    - Get statistics\n", port)
+	fmt.Printf("  GET  http://localhost:%s/metrics  - Prometheus metrics\n", port)
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Printf("  curl http://localhost:%s/status\n", port)
 	fmt.Printf("  curl -X POST http://localhost:%s/start -d '{\"activeAgents\":100}'\n", port)
+	fmt.Printf("  curl -X POST http://localhost:%s/scale -d '{\"activeAgents\":500}'\n", port)
 	fmt.Printf("  curl -X POST http://localhost:%s/stop\n", port)
 	fmt.Println()
 }

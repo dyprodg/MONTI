@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -20,30 +21,42 @@ type API struct {
 	logger      zerolog.Logger
 	startFunc   func(int) error
 	stopFunc    func() error
+	scaleFunc   func(int) error
 	statsFunc   func() map[string]interface{}
+	metricsFunc func() map[string]interface{}
 }
 
 // NewAPI creates a new control API
 func NewAPI(logger zerolog.Logger) *API {
 	return &API{
 		config: &types.SimulationConfig{
-			TotalAgents:  200,
+			TotalAgents:  2000,
 			ActiveAgents: 0,
 		},
 		status: &types.SimulationStatus{
 			Running:      false,
-			TotalAgents:  200,
+			TotalAgents:  2000,
 			ActiveAgents: 0,
 		},
 		logger: logger,
 	}
 }
 
+// SetTotalAgents updates the total agent count (called after agents are generated)
+func (api *API) SetTotalAgents(total int) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.config.TotalAgents = total
+	api.status.TotalAgents = total
+}
+
 // SetHandlers sets the control functions
-func (api *API) SetHandlers(start func(int) error, stop func() error, stats func() map[string]interface{}) {
+func (api *API) SetHandlers(start func(int) error, stop func() error, scale func(int) error, stats func() map[string]interface{}, metrics func() map[string]interface{}) {
 	api.startFunc = start
 	api.stopFunc = stop
+	api.scaleFunc = scale
 	api.statsFunc = stats
+	api.metricsFunc = metrics
 }
 
 // SetupRoutes configures HTTP routes
@@ -52,8 +65,10 @@ func (api *API) SetupRoutes(router *mux.Router) {
 	router.HandleFunc("/status", api.statusHandler).Methods("GET")
 	router.HandleFunc("/start", api.startHandler).Methods("POST")
 	router.HandleFunc("/stop", api.stopHandler).Methods("POST")
+	router.HandleFunc("/scale", api.scaleHandler).Methods("POST")
 	router.HandleFunc("/config", api.configHandler).Methods("GET", "PUT")
 	router.HandleFunc("/stats", api.statsHandler).Methods("GET")
+	router.HandleFunc("/metrics", api.metricsHandler).Methods("GET")
 }
 
 // healthHandler returns service health
@@ -185,6 +200,66 @@ func (api *API) statsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := api.statsFunc()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// scaleHandler dynamically scales the number of active agents
+func (api *API) scaleHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ActiveAgents int `json:"activeAgents"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ActiveAgents < 0 || req.ActiveAgents > api.config.TotalAgents {
+		http.Error(w, "activeAgents must be between 0 and total agents", http.StatusBadRequest)
+		return
+	}
+
+	if err := api.scaleFunc(req.ActiveAgents); err != nil {
+		api.logger.Error().Err(err).Msg("failed to scale simulation")
+		http.Error(w, "failed to scale simulation", http.StatusInternalServerError)
+		return
+	}
+
+	api.mu.Lock()
+	api.status.ActiveAgents = req.ActiveAgents
+	api.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":       "simulation scaled",
+		"active_agents": req.ActiveAgents,
+	})
+}
+
+// metricsHandler returns Prometheus-compatible metrics
+func (api *API) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	metrics := api.metricsFunc()
+
+	// Output in Prometheus text format
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	for name, value := range metrics {
+		switch v := value.(type) {
+		case int:
+			fmt.Fprintf(w, "%s %d\n", name, v)
+		case int64:
+			fmt.Fprintf(w, "%s %d\n", name, v)
+		case float64:
+			fmt.Fprintf(w, "%s %f\n", name, v)
+		case bool:
+			if v {
+				fmt.Fprintf(w, "%s 1\n", name)
+			} else {
+				fmt.Fprintf(w, "%s 0\n", name)
+			}
+		default:
+			fmt.Fprintf(w, "%s %v\n", name, v)
+		}
+	}
 }
 
 // Start starts the HTTP server

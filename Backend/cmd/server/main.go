@@ -14,6 +14,7 @@ import (
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
 	"github.com/dennisdiepolder/monti/backend/internal/event"
+	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/websocket"
 	"github.com/dennisdiepolder/monti/backend/pkg/middleware"
 	"github.com/go-chi/chi/v5"
@@ -87,6 +88,7 @@ func main() {
 
 	// Register public routes (no auth required)
 	r.Get("/health", healthHandler)
+	r.Get("/metrics", metrics.Get().Handler())
 
 	// Internal routes (no auth - for internal services like AgentSim)
 	r.Route("/internal", func(r chi.Router) {

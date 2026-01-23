@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/rs/zerolog"
 )
@@ -42,12 +43,15 @@ func NewHub(logger zerolog.Logger) *Hub {
 
 // Run starts the hub's main loop
 func (h *Hub) Run() {
+	m := metrics.Get()
+
 	for {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
 			h.mu.Unlock()
+			m.RecordWebSocketConnect()
 			h.logger.Info().
 				Str("client_id", client.id).
 				Int("total_clients", len(h.clients)).
@@ -58,6 +62,7 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
+				m.RecordWebSocketDisconnect()
 				h.logger.Info().
 					Str("client_id", client.id).
 					Int("total_clients", len(h.clients)).
@@ -66,6 +71,7 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 		case message := <-h.broadcast:
+			m.RecordWebSocketMessage()
 			// Try to parse as a Widget for per-client filtering
 			var widget types.Widget
 			if err := json.Unmarshal(message, &widget); err != nil {
