@@ -98,11 +98,14 @@ Add these secrets to GitHub repository:
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | AWS IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS IAM secret |
-| `CF_DISTRIBUTION_ID` | CloudFront distribution ID |
-| `DOCKERHUB_USERNAME` | DockerHub username |
-| `DOCKERHUB_TOKEN` | DockerHub access token |
-| `EC2_HOST` | EC2 public IP or domain |
+| `CF_DISTRIBUTION_ID` | CloudFront distribution ID (from Terraform output) |
+| `EC2_HOST` | EC2 public IP (from Terraform output) |
 | `EC2_SSH_KEY` | Private SSH key for EC2 |
+| `VITE_API_URL` | Backend API URL (e.g., https://api.monti.app) |
+| `VITE_OIDC_ISSUER` | Keycloak issuer URL |
+| `VITE_OIDC_CLIENT_ID` | OIDC client ID (e.g., monti-app) |
+
+**Note:** Docker images are now pushed to **ECR** (not DockerHub). No DockerHub credentials needed.
 
 ### Step 4: Create CI/CD Pipelines
 
@@ -156,47 +159,14 @@ jobs:
 
 ---
 
-## Pipeline 2: Backend (EC2)
+## Pipeline 2: Backend (EC2 + ECR)
 
-Create `.github/workflows/backend.yml`:
+See `.github/workflows/backend.yml` for the full implementation.
 
-```yaml
-name: Deploy Backend
-
-on:
-  push:
-    branches: [main]
-    paths: ['Backend/**', 'docker-compose.yml']
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push
-        run: |
-          docker build -t yourusername/monti-backend:${{ github.sha }} -t yourusername/monti-backend:latest ./Backend
-          docker push yourusername/monti-backend:latest
-          docker push yourusername/monti-backend:${{ github.sha }}
-
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd /home/ec2-user/monti
-            docker-compose pull backend
-            docker-compose up -d backend
-```
+Key points:
+- Images are pushed to **ECR** (AWS Elastic Container Registry)
+- EC2 instance has IAM role for ECR pull access
+- Automatic ECR login refresh via cron on EC2
 
 ---
 
@@ -267,9 +237,45 @@ aws s3 sync dist s3://monti-frontend --delete
 aws cloudfront create-invalidation --distribution-id XXXXX --paths "/*"
 ```
 
-### Backend
+### Backend (using ECR)
 ```bash
-docker build -t yourusername/monti-backend:latest ./Backend
-docker push yourusername/monti-backend:latest
+# Login to ECR
+aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.eu-central-1.amazonaws.com
+
+# Build and push
+docker build -t <account-id>.dkr.ecr.eu-central-1.amazonaws.com/monti-backend:latest ./Backend
+docker push <account-id>.dkr.ecr.eu-central-1.amazonaws.com/monti-backend:latest
+
+# Deploy on EC2
 ssh ec2-user@your-ec2-ip "cd monti && docker-compose pull backend && docker-compose up -d backend"
 ```
+
+---
+
+## Terraform Infrastructure
+
+All infrastructure is managed via Terraform in `Infra/`.
+
+### First-time Setup (Bootstrap)
+
+```bash
+# 1. Create S3 bucket for Terraform state
+cd Infra/bootstrap
+terraform init
+terraform apply
+
+# 2. Deploy main infrastructure
+cd ..
+terraform init
+terraform plan
+terraform apply
+```
+
+### Terraform Outputs
+
+After `terraform apply`, you'll get:
+- `ecr_backend_url` - ECR repository URL for backend
+- `cloudfront_distribution_id` - For GitHub secrets
+- `cloudfront_domain_name` - Frontend URL
+- `ec2_public_ip` - Backend server IP
+- `ssh_command` - Ready-to-use SSH command

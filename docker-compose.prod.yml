@@ -1,0 +1,139 @@
+# Production Docker Compose
+# Uses environment variables from .env file
+# Backend and AgentSim images pulled from ECR
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: monti-keycloak
+    command: start --optimized
+    ports:
+      - "8180:8180"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_HTTP_PORT=8180
+      - KC_HOSTNAME=${KC_HOSTNAME:-localhost}
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HTTP_RELATIVE_PATH=/
+      - KC_PROXY=edge
+      - KC_HTTP_ENABLED=true
+    networks:
+      - monti-network
+    restart: unless-stopped
+
+  backend:
+    image: ${ECR_REGISTRY}/monti-backend:latest
+    container_name: monti-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - LOG_LEVEL=info
+      - WS_READ_TIMEOUT=60
+      - WS_WRITE_TIMEOUT=10
+      - ENV=production
+      - OIDC_ISSUER=http://keycloak:8180/realms/monti
+      - OIDC_CLIENT_ID=monti-app
+      - OIDC_AUDIENCE=monti-app
+      - SKIP_AUTH=false
+    networks:
+      - monti-network
+    depends_on:
+      - keycloak
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  agentsim:
+    image: ${ECR_REGISTRY}/monti-agentsim:latest
+    container_name: monti-agentsim
+    ports:
+      - "8081:8081"
+    environment:
+      - AGENTSIM_BACKEND_URL=http://backend:8080
+      - AGENTSIM_AGENTS=2000
+      - AGENTSIM_AUTO_START=false
+      - AGENTSIM_ACTIVE_AGENTS=100
+      - AGENTSIM_CONTROL_PORT=8081
+      - AGENTSIM_LOG_LEVEL=info
+    networks:
+      - monti-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 256M
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monti-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - monti-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monti-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GF_ROOT_URL:-http://localhost:3000}
+    networks:
+      - monti-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: monti-cadvisor
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monti-network
+    restart: unless-stopped
+
+networks:
+  monti-network:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  keycloak-data:
