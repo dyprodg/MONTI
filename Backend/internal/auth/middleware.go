@@ -2,15 +2,15 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/MicahParks/keyfunc/v3"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -29,19 +29,60 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
-// JWKS represents the JSON Web Key Set
-type JWKS struct {
-	Keys []JWK `json:"keys"`
+// JWKSManager handles JWKS fetching and caching
+type JWKSManager struct {
+	jwks       keyfunc.Keyfunc
+	issuerURL  string
+	mu         sync.RWMutex
+	lastUpdate time.Time
 }
 
-// JWK represents a JSON Web Key
-type JWK struct {
-	Kid string `json:"kid"`
-	Kty string `json:"kty"`
-	Alg string `json:"alg"`
-	Use string `json:"use"`
-	N   string `json:"n"`
-	E   string `json:"e"`
+var (
+	jwksManager *JWKSManager
+	jwksOnce    sync.Once
+)
+
+// InitJWKS initializes the JWKS manager for token verification
+// Call this on server startup in production mode
+func InitJWKS(issuerURL string) error {
+	var initErr error
+	jwksOnce.Do(func() {
+		jwksManager = &JWKSManager{issuerURL: issuerURL}
+		initErr = jwksManager.refresh()
+	})
+	return initErr
+}
+
+// refresh fetches the JWKS from the OIDC provider
+func (m *JWKSManager) refresh() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Construct JWKS URL (Keycloak format)
+	jwksURL := strings.TrimSuffix(m.issuerURL, "/") + "/protocol/openid-connect/certs"
+	log.Printf("[Auth] Fetching JWKS from: %s", jwksURL)
+
+	// Create keyfunc with options
+	k, err := keyfunc.NewDefault([]string{jwksURL})
+	if err != nil {
+		return fmt.Errorf("failed to create keyfunc: %w", err)
+	}
+
+	m.jwks = k
+	m.lastUpdate = time.Now()
+	log.Printf("[Auth] JWKS loaded successfully")
+	return nil
+}
+
+// getKeyfunc returns the JWT keyfunc for token verification
+func (m *JWKSManager) getKeyfunc() jwt.Keyfunc {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.jwks == nil {
+		return nil
+	}
+	return m.jwks.Keyfunc
 }
 
 // Middleware validates JWT tokens from OIDC provider
@@ -114,12 +155,32 @@ func extractToken(r *http.Request) string {
 	return ""
 }
 
-// validateToken validates the JWT token
+// validateToken validates the JWT token with optional signature verification
 func validateToken(tokenString string) (*Claims, error) {
-	// Parse token as MapClaims to access all fields
-	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+	env := os.Getenv("ENV")
+	verifySignature := os.Getenv("VERIFY_JWT_SIGNATURE") == "true"
+
+	// In production, verify signature by default
+	if env != "development" && env != "" {
+		verifySignature = true
+	}
+
+	var token *jwt.Token
+	var err error
+
+	if verifySignature {
+		// Production: Verify signature using JWKS
+		token, err = parseAndVerifyToken(tokenString)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Development: Parse without verification (for local testing)
+		log.Println("[Auth] WARNING: JWT signature verification disabled (development mode)")
+		token, _, err = new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse token: %w", err)
+		}
 	}
 
 	mapClaims, ok := token.Claims.(jwt.MapClaims)
@@ -157,33 +218,52 @@ func validateToken(tokenString string) (*Claims, error) {
 		claims.Subject = sub
 	}
 
-	// Check expiration
-	if exp, ok := mapClaims["exp"].(float64); ok {
-		expTime := time.Unix(int64(exp), 0)
-		claims.ExpiresAt = jwt.NewNumericDate(expTime)
-		if expTime.Before(time.Now()) {
-			return nil, fmt.Errorf("token expired")
+	// Check expiration (for unverified tokens - verified tokens check this automatically)
+	if !verifySignature {
+		if exp, ok := mapClaims["exp"].(float64); ok {
+			expTime := time.Unix(int64(exp), 0)
+			claims.ExpiresAt = jwt.NewNumericDate(expTime)
+			if expTime.Before(time.Now()) {
+				return nil, fmt.Errorf("token expired")
+			}
 		}
 	}
 
-	// In development, we skip signature verification for Keycloak
-	// In production, you should verify against OIDC provider's public keys
-	env := os.Getenv("ENV")
-	if env == "development" {
-		log.Printf("[Auth] Development mode - Token parsed: email=%s, role=%s, groups=%v, businessUnits=%v, allowedLocations=%v",
-			claims.Email, claims.Role, claims.Groups, claims.BusinessUnits, claims.AllowedLocations)
-		return claims, nil
-	}
+	log.Printf("[Auth] Token parsed: email=%s, role=%s, groups=%v, businessUnits=%v, allowedLocations=%v",
+		claims.Email, claims.Role, claims.Groups, claims.BusinessUnits, claims.AllowedLocations)
 
-	// Production: Verify signature against OIDC provider
-	issuer := os.Getenv("OIDC_ISSUER")
-	if issuer == "" {
-		return nil, fmt.Errorf("OIDC_ISSUER not configured")
-	}
-
-	// Here you would verify against the OIDC provider's public keys
-	// For now, we'll accept the token in development mode
 	return claims, nil
+}
+
+// parseAndVerifyToken verifies the JWT signature using JWKS
+func parseAndVerifyToken(tokenString string) (*jwt.Token, error) {
+	// Ensure JWKS is initialized
+	if jwksManager == nil {
+		issuer := os.Getenv("OIDC_ISSUER")
+		if issuer == "" {
+			return nil, fmt.Errorf("OIDC_ISSUER not configured for production JWT verification")
+		}
+		if err := InitJWKS(issuer); err != nil {
+			return nil, fmt.Errorf("failed to initialize JWKS: %w", err)
+		}
+	}
+
+	keyfunc := jwksManager.getKeyfunc()
+	if keyfunc == nil {
+		return nil, fmt.Errorf("JWKS not available")
+	}
+
+	// Parse and verify the token
+	token, err := jwt.Parse(tokenString, keyfunc, jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}))
+	if err != nil {
+		return nil, fmt.Errorf("token verification failed: %w", err)
+	}
+
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	return token, nil
 }
 
 // extractRoleFromMapClaims extracts role from various possible token claim locations
@@ -191,16 +271,11 @@ func extractRoleFromMapClaims(mapClaims jwt.MapClaims) string {
 	// Check realm_access.roles (Keycloak)
 	if realmAccess, ok := mapClaims["realm_access"].(map[string]interface{}); ok {
 		if roles, ok := realmAccess["roles"].([]interface{}); ok {
-			for _, role := range roles {
-				if roleStr, ok := role.(string); ok {
-					if roleStr == "admin" {
-						return "admin"
-					}
-					if roleStr == "manager" {
-						return "manager"
-					}
-					if roleStr == "viewer" {
-						return "viewer"
+			// Priority order: admin > supervisor > agent > viewer
+			for _, priority := range []string{"admin", "supervisor", "agent", "viewer"} {
+				for _, role := range roles {
+					if roleStr, ok := role.(string); ok && roleStr == priority {
+						return roleStr
 					}
 				}
 			}
@@ -214,8 +289,11 @@ func extractRoleFromMapClaims(mapClaims jwt.MapClaims) string {
 				if strings.Contains(groupStr, "admin") {
 					return "admin"
 				}
-				if strings.Contains(groupStr, "manager") {
-					return "manager"
+				if strings.Contains(groupStr, "supervisor") {
+					return "supervisor"
+				}
+				if strings.Contains(groupStr, "agent") {
+					return "agent"
 				}
 			}
 		}
@@ -228,8 +306,11 @@ func extractRoleFromMapClaims(mapClaims jwt.MapClaims) string {
 				if strings.Contains(groupStr, "admin") {
 					return "admin"
 				}
-				if strings.Contains(groupStr, "manager") {
-					return "manager"
+				if strings.Contains(groupStr, "supervisor") {
+					return "supervisor"
+				}
+				if strings.Contains(groupStr, "agent") {
+					return "agent"
 				}
 			}
 		}
@@ -282,43 +363,6 @@ func InGroup(claims *Claims, group string) bool {
 		}
 	}
 	return false
-}
-
-// fetchJWKS fetches the JWKS from the OIDC provider
-func fetchJWKS(issuerURL string) (*JWKS, error) {
-	// Construct JWKS URL
-	jwksURL := strings.TrimSuffix(issuerURL, "/") + "/.well-known/jwks.json"
-
-	// Make HTTP request
-	resp, err := http.Get(jwksURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("JWKS endpoint returned status %d", resp.StatusCode)
-	}
-
-	// Parse response
-	var jwks JWKS
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return nil, fmt.Errorf("failed to decode JWKS: %w", err)
-	}
-
-	return &jwks, nil
-}
-
-// parseIssuerURL ensures the issuer URL is properly formatted
-func parseIssuerURL(issuer string) (string, error) {
-	u, err := url.Parse(issuer)
-	if err != nil {
-		return "", fmt.Errorf("invalid issuer URL: %w", err)
-	}
-
-	// Handle container-to-container communication
-	// If issuer uses service name, it should be accessible from backend
-	return u.String(), nil
 }
 
 // extractBusinessUnits parses business unit names from group paths

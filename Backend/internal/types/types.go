@@ -104,14 +104,16 @@ type AgentEvent struct {
 
 // AgentInfo represents the current state of an agent
 type AgentInfo struct {
-	AgentID    string     `json:"agentId"`
-	State      AgentState `json:"state"`
-	Department Department `json:"department"`
-	Location   Location   `json:"location"`
-	Team       string     `json:"team"`
-	StateStart time.Time  `json:"stateStart"` // when current state started
-	LastUpdate time.Time  `json:"lastUpdate"` // last event received
-	KPIs       AgentKPIs  `json:"kpis"`
+	AgentID          string                `json:"agentId"`
+	State            AgentState            `json:"state"`
+	Department       Department            `json:"department"`
+	Location         Location              `json:"location"`
+	Team             string                `json:"team"`
+	StateStart       time.Time             `json:"stateStart"`       // when current state started
+	LastUpdate       time.Time             `json:"lastUpdate"`       // last event received
+	LastHeartbeat    time.Time             `json:"lastHeartbeat"`    // last heartbeat received
+	ConnectionStatus AgentConnectionStatus `json:"connectionStatus"` // connection status
+	KPIs             AgentKPIs             `json:"kpis"`
 }
 
 // Widget represents aggregated data for a single widget
@@ -131,4 +133,53 @@ type WidgetSummary struct {
 	StateBreakdown      map[AgentState]int     `json:"stateBreakdown"`
 	DepartmentBreakdown map[Department]int     `json:"departmentBreakdown,omitempty"`
 	LocationBreakdown   map[Location]int       `json:"locationBreakdown,omitempty"`
+}
+
+// AgentConnectionStatus represents the connection status of an agent
+type AgentConnectionStatus string
+
+const (
+	StatusConnected    AgentConnectionStatus = "connected"
+	StatusDisconnected AgentConnectionStatus = "disconnected"
+	StatusStale        AgentConnectionStatus = "stale" // no heartbeat > 6s
+)
+
+// AgentHeartbeat is sent from agent to backend periodically
+type AgentHeartbeat struct {
+	Type      string     `json:"type"`      // "heartbeat"
+	AgentID   string     `json:"agentId"`
+	State     AgentState `json:"state"`
+	Timestamp time.Time  `json:"timestamp"`
+	KPIs      AgentKPIs  `json:"kpis"`
+}
+
+// AgentStateChange is sent from agent to backend on state transitions
+type AgentStateChange struct {
+	Type          string     `json:"type"` // "state_change"
+	AgentID       string     `json:"agentId"`
+	PreviousState AgentState `json:"previousState"`
+	NewState      AgentState `json:"newState"`
+	Timestamp     time.Time  `json:"timestamp"`
+	StateDuration float64    `json:"stateDuration"`
+	KPIs          AgentKPIs  `json:"kpis"`
+	Department    Department `json:"department"`
+	Location      Location   `json:"location"`
+	Team          string     `json:"team"`
+}
+
+// AgentRegister is sent when an agent first connects
+type AgentRegister struct {
+	Type       string     `json:"type"` // "register"
+	AgentID    string     `json:"agentId"`
+	Department Department `json:"department"`
+	Location   Location   `json:"location"`
+	Team       string     `json:"team"`
+	State      AgentState `json:"state"`
+	KPIs       AgentKPIs  `json:"kpis"`
+}
+
+// ServerAck is sent from backend to agent as acknowledgment
+type ServerAck struct {
+	Type    string `json:"type"` // "ack"
+	AgentID string `json:"agentId"`
 }

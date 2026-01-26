@@ -1,11 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"math/rand"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,50 +13,37 @@ import (
 
 // Simulator manages agent state transitions
 type Simulator struct {
-	agents        []types.Agent
-	activeAgents  map[string]bool
-	agentCancels  map[string]context.CancelFunc
-	mu            sync.RWMutex
-	rng           *rand.Rand
-	logger        zerolog.Logger
-	backendURL    string
-	httpClient    *http.Client
-	eventsSent    int64
-	backendErrors int64
-	running       bool
-	ctx           context.Context
-	cancel        context.CancelFunc
+	agents       []types.Agent
+	activeAgents map[string]bool
+	agentCancels map[string]context.CancelFunc
+	connections  map[string]*AgentConnection
+	mu           sync.RWMutex
+	rng          *rand.Rand
+	logger       zerolog.Logger
+	backendURL   string
+	running      bool
+	ctx          context.Context
+	cancel       context.CancelFunc
 
-	// Additional metrics
-	startTime          time.Time
-	stateTransitions   int64
-	stateChangeCounts  map[types.AgentState]int64
-	stateMu            sync.RWMutex
+	// Metrics
+	startTime         time.Time
+	stateTransitions  int64
+	stateChangeCounts map[types.AgentState]int64
+	stateMu           sync.RWMutex
 }
 
 // NewSimulator creates a new agent simulator
 func NewSimulator(agents []types.Agent, backendURL string, logger zerolog.Logger) *Simulator {
-	// Optimize HTTP transport for high concurrency (2000 agents)
-	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		MaxConnsPerHost:     200,
-		IdleConnTimeout:     90 * time.Second,
-	}
-
 	return &Simulator{
 		agents:            agents,
 		activeAgents:      make(map[string]bool),
 		agentCancels:      make(map[string]context.CancelFunc),
+		connections:       make(map[string]*AgentConnection),
 		rng:               rand.New(rand.NewSource(time.Now().UnixNano())),
 		logger:            logger,
 		backendURL:        backendURL,
 		startTime:         time.Now(),
 		stateChangeCounts: make(map[types.AgentState]int64),
-		httpClient: &http.Client{
-			Timeout:   5 * time.Second,
-			Transport: transport,
-		},
 	}
 }
 
@@ -82,7 +66,7 @@ func (s *Simulator) Start(ctx context.Context, numActive int) {
 	}
 	s.mu.Unlock()
 
-	s.logger.Info().Int("active_agents", numActive).Msg("agent simulation started")
+	s.logger.Info().Int("active_agents", numActive).Msg("agent simulation started with WebSocket connections")
 }
 
 // Stop stops all active agents
@@ -98,7 +82,8 @@ func (s *Simulator) Stop() {
 		delete(s.agentCancels, id)
 	}
 
-	// Clear active agents
+	// Clear connections and active agents
+	s.connections = make(map[string]*AgentConnection)
 	s.activeAgents = make(map[string]bool)
 
 	if s.cancel != nil {
@@ -163,13 +148,15 @@ func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
 			agent.KPIs = s.generateInitialKPIs()
 			s.activeAgents[agent.ID] = true
 
+			// Create WebSocket connection for this agent
+			conn := NewAgentConnection(agent, s.backendURL, s.logger)
+			s.connections[agent.ID] = conn
+			go conn.Run(s.ctx)
+
 			// Start agent goroutine
 			agentCtx, agentCancel := context.WithCancel(s.ctx)
 			s.agentCancels[agent.ID] = agentCancel
 			go s.simulateAgent(agentCtx, agent.ID)
-
-			// Send initial state event
-			go s.sendEvent(*agent, 0.0)
 		}
 
 	} else if targetAgents < currentCount {
@@ -194,6 +181,7 @@ func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
 				delete(s.agentCancels, id)
 			}
 			delete(s.activeAgents, id)
+			delete(s.connections, id)
 		}
 	}
 
@@ -232,8 +220,10 @@ func (s *Simulator) activateAgents(count int) {
 		agent.KPIs = s.generateInitialKPIs()
 		s.activeAgents[agent.ID] = true
 
-		// Send initial state event
-		go s.sendEvent(*agent, 0.0)
+		// Create WebSocket connection for this agent
+		conn := NewAgentConnection(agent, s.backendURL, s.logger)
+		s.connections[agent.ID] = conn
+		go conn.Run(s.ctx)
 	}
 }
 
@@ -273,15 +263,16 @@ func (s *Simulator) getAgent(id string) *types.Agent {
 	return nil
 }
 
-// updateAgentState updates an agent's state and sends event to backend
+// updateAgentState updates an agent's state and sends event via WebSocket
 func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) {
 	s.mu.Lock()
-	var agent types.Agent
+	var previousState types.AgentState
 	var stateDuration float64
+	var conn *AgentConnection
 
 	for i := range s.agents {
 		if s.agents[i].ID == agentID {
-			previousState := s.agents[i].State
+			previousState = s.agents[i].State
 			stateDuration = time.Since(s.agents[i].StateStart).Seconds()
 
 			// Update KPIs before changing state
@@ -290,7 +281,12 @@ func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) 
 			s.agents[i].State = newState
 			s.agents[i].StateStart = time.Now()
 			s.agents[i].LastUpdate = time.Now()
-			agent = s.agents[i]
+
+			// Get connection and update agent reference
+			conn = s.connections[agentID]
+			if conn != nil {
+				conn.UpdateAgent(&s.agents[i])
+			}
 			break
 		}
 	}
@@ -302,49 +298,10 @@ func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) 
 	s.stateChangeCounts[newState]++
 	s.stateMu.Unlock()
 
-	// Send event to backend (non-blocking)
-	go s.sendEvent(agent, stateDuration)
-}
-
-// sendEvent sends an agent event to the backend
-func (s *Simulator) sendEvent(agent types.Agent, stateDuration float64) {
-	event := types.AgentEvent{
-		AgentID:       agent.ID,
-		State:         agent.State,
-		Department:    agent.Department,
-		Location:      agent.Location,
-		Team:          agent.Team,
-		Timestamp:     time.Now(),
-		StateDuration: stateDuration,
-		KPIs:          agent.KPIs,
+	// Send state change via WebSocket (non-blocking)
+	if conn != nil {
+		conn.SendStateChange(previousState, newState, stateDuration)
 	}
-
-	data, err := json.Marshal(event)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("failed to marshal event")
-		atomic.AddInt64(&s.backendErrors, 1)
-		return
-	}
-
-	resp, err := s.httpClient.Post(
-		s.backendURL+"/internal/event",
-		"application/json",
-		bytes.NewReader(data),
-	)
-	if err != nil {
-		s.logger.Debug().Err(err).Str("agent_id", agent.ID).Msg("failed to send event")
-		atomic.AddInt64(&s.backendErrors, 1)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		s.logger.Debug().Int("status", resp.StatusCode).Str("agent_id", agent.ID).Msg("backend returned non-200 status")
-		atomic.AddInt64(&s.backendErrors, 1)
-		return
-	}
-
-	atomic.AddInt64(&s.eventsSent, 1)
 }
 
 // getStateDuration returns how long an agent should stay in a state
@@ -455,14 +412,14 @@ func (s *Simulator) GetActiveCount() int {
 	return len(s.activeAgents)
 }
 
-// GetEventsSent returns the total number of events sent to backend
+// GetEventsSent returns the total number of state changes sent
 func (s *Simulator) GetEventsSent() int64 {
-	return atomic.LoadInt64(&s.eventsSent)
+	return atomic.LoadInt64(&s.stateTransitions)
 }
 
-// GetBackendErrors returns the total number of backend errors
+// GetBackendErrors returns 0 (kept for API compatibility)
 func (s *Simulator) GetBackendErrors() int64 {
-	return atomic.LoadInt64(&s.backendErrors)
+	return 0
 }
 
 // GetMetrics returns Prometheus-compatible metrics
@@ -476,31 +433,49 @@ func (s *Simulator) GetMetrics() map[string]interface{} {
 	deptCount := make(map[types.Department]int)
 	locCount := make(map[types.Location]int)
 
+	// Count connected agents
+	connectedCount := 0
+	var totalHeartbeats, totalStateChanges, totalReconnects int64
+
 	for _, agent := range s.agents {
 		if s.activeAgents[agent.ID] {
 			stateCount[agent.State]++
 			deptCount[agent.Department]++
 			locCount[agent.Location]++
+
+			if conn := s.connections[agent.ID]; conn != nil {
+				if conn.IsConnected() {
+					connectedCount++
+				}
+				hb, sc, rc := conn.GetMetrics()
+				totalHeartbeats += hb
+				totalStateChanges += sc
+				totalReconnects += rc
+			}
 		}
 	}
 	s.mu.RUnlock()
 
 	// Calculate events per second
 	uptime := time.Since(s.startTime).Seconds()
-	eventsPerSecond := float64(0)
+	stateChangesPerSecond := float64(0)
 	if uptime > 0 {
-		eventsPerSecond = float64(atomic.LoadInt64(&s.eventsSent)) / uptime
+		stateChangesPerSecond = float64(atomic.LoadInt64(&s.stateTransitions)) / uptime
 	}
 
 	metrics := map[string]interface{}{
-		"agentsim_active_agents":        activeCount,
-		"agentsim_total_agents":         totalAgents,
-		"agentsim_events_sent_total":    atomic.LoadInt64(&s.eventsSent),
-		"agentsim_backend_errors_total": atomic.LoadInt64(&s.backendErrors),
-		"agentsim_state_transitions":    atomic.LoadInt64(&s.stateTransitions),
-		"agentsim_events_per_second":    eventsPerSecond,
-		"agentsim_uptime_seconds":       uptime,
-		"agentsim_running":              s.IsRunning(),
+		"agentsim_active_agents":            activeCount,
+		"agentsim_total_agents":             totalAgents,
+		"agentsim_state_transitions":        atomic.LoadInt64(&s.stateTransitions),
+		"agentsim_state_changes_per_second": stateChangesPerSecond,
+		"agentsim_uptime_seconds":           uptime,
+		"agentsim_running":                  s.IsRunning(),
+
+		// WebSocket metrics
+		"agentsim_websocket_connections":    connectedCount,
+		"agentsim_websocket_reconnects":     totalReconnects,
+		"agentsim_heartbeats_sent_total":    totalHeartbeats,
+		"agentsim_state_changes_sent_total": totalStateChanges,
 	}
 
 	// Add state breakdown

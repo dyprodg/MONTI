@@ -5,6 +5,8 @@ services:
     command: start-dev
     ports:
       - "8180:8180"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
@@ -144,6 +146,20 @@ services:
       - prometheus
     restart: unless-stopped
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: monti-cadvisor
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monti-network
+    restart: unless-stopped
+
 networks:
   monti-network:
     driver: bridge
@@ -152,3 +168,4 @@ volumes:
   backend-go-cache:
   prometheus-data:
   grafana-data:
+  keycloak-data:

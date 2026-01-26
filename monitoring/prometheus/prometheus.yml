@@ -21,3 +21,15 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
+  # Container metrics via cAdvisor
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 5s
+    metric_relabel_configs:
+      # Extract container name from id label for monti containers
+      - source_labels: [id]
+        regex: '/docker/([a-f0-9]+)'
+        target_label: container_id
+        replacement: '${1}'

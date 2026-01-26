@@ -48,28 +48,49 @@ func main() {
 		Str("log_level", cfg.LogLevel).
 		Msg("starting MONTI backend server")
 
-	// Create WebSocket hub
+	// Create WebSocket hub for frontend clients
 	hub := websocket.NewHub(log.Logger)
 	go hub.Run()
 
 	// Create context for services
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create agent state tracker
+	stateTracker := cache.NewAgentStateTracker()
+
+	// Create agent WebSocket hub
+	agentHub := websocket.NewAgentHub(stateTracker, log.Logger)
+	go agentHub.Run()
+
+	// Start stale agent checker (every 2 seconds)
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				stateTracker.CheckStaleAgents()
+			}
+		}
+	}()
 	defer cancel()
 
 	// Ticker disabled - now using widget aggregator for all broadcasts
 	// tickerService := ticker.NewTicker(hub, 1*time.Second, log.Logger)
 	// go tickerService.Start(ctx)
 
-	// Create WebSocket handler
+	// Create WebSocket handler for frontend clients
 	wsHandler := websocket.NewHandler(hub, cfg, log.Logger)
+
+	// Create agent WebSocket handler
+	agentWsHandler := websocket.NewAgentHandler(agentHub, log.Logger)
 
 	// Create event cache
 	eventCache := cache.NewEventCache()
 
-	// Create agent state tracker
-	stateTracker := cache.NewAgentStateTracker()
-
-	// Create event receiver
+	// Create event receiver (uses the already created stateTracker)
 	eventReceiver := event.NewReceiver(eventCache, stateTracker, log.Logger)
 
 	// Create aggregator
@@ -95,6 +116,9 @@ func main() {
 		r.Post("/event", eventReceiver.HandleEvent)
 		r.Get("/event/stats", eventReceiver.GetStats)
 	})
+
+	// Agent WebSocket endpoint (no auth - for internal AgentSim connections)
+	r.Get("/ws/agent", agentWsHandler.ServeHTTP)
 
 	// Add auth middleware for protected routes
 	r.Group(func(r chi.Router) {

@@ -18,12 +18,20 @@ type Metrics struct {
 	EventsProcessedTotal  int64
 	EventProcessingErrors int64
 
-	// WebSocket metrics
+	// WebSocket metrics (frontend clients)
 	WebSocketConnectionsTotal    int64
 	WebSocketDisconnectionsTotal int64
 	WebSocketMessagesTotal       int64
 	WebSocketErrorsTotal         int64
 	activeConnections            int64
+
+	// Agent WebSocket metrics
+	AgentConnectionsTotal    int64
+	AgentDisconnectionsTotal int64
+	AgentHeartbeatsTotal     int64
+	AgentStateChangesTotal   int64
+	AgentRegistrationsTotal  int64
+	activeAgentConnections   int64
 
 	// Aggregation metrics
 	AggregationCyclesTotal  int64
@@ -113,6 +121,50 @@ func (m *Metrics) RecordWebSocketError() {
 	m.mu.Lock()
 	m.WebSocketErrorsTotal++
 	m.mu.Unlock()
+}
+
+// RecordAgentConnect increments agent connection counters
+func (m *Metrics) RecordAgentConnect() {
+	m.mu.Lock()
+	m.AgentConnectionsTotal++
+	m.activeAgentConnections++
+	m.mu.Unlock()
+}
+
+// RecordAgentDisconnect increments agent disconnection counter
+func (m *Metrics) RecordAgentDisconnect() {
+	m.mu.Lock()
+	m.AgentDisconnectionsTotal++
+	m.activeAgentConnections--
+	m.mu.Unlock()
+}
+
+// RecordAgentHeartbeat increments agent heartbeat counter
+func (m *Metrics) RecordAgentHeartbeat() {
+	m.mu.Lock()
+	m.AgentHeartbeatsTotal++
+	m.mu.Unlock()
+}
+
+// RecordAgentStateChange increments agent state change counter
+func (m *Metrics) RecordAgentStateChange() {
+	m.mu.Lock()
+	m.AgentStateChangesTotal++
+	m.mu.Unlock()
+}
+
+// RecordAgentRegister increments agent registration counter
+func (m *Metrics) RecordAgentRegister() {
+	m.mu.Lock()
+	m.AgentRegistrationsTotal++
+	m.mu.Unlock()
+}
+
+// GetActiveAgentConnections returns current agent WebSocket connections
+func (m *Metrics) GetActiveAgentConnections() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.activeAgentConnections
 }
 
 // RecordAggregationCycle records an aggregation cycle
@@ -219,12 +271,20 @@ func (m *Metrics) Handler() http.HandlerFunc {
 			write("monti_events_per_second", float64(m.EventsReceivedTotal)/uptimeSeconds)
 		}
 
-		// WebSocket metrics
+		// WebSocket metrics (frontend clients)
 		write("monti_websocket_connections_total", m.WebSocketConnectionsTotal)
 		write("monti_websocket_disconnections_total", m.WebSocketDisconnectionsTotal)
 		write("monti_websocket_active_connections", m.activeConnections)
 		write("monti_websocket_messages_total", m.WebSocketMessagesTotal)
 		write("monti_websocket_errors_total", m.WebSocketErrorsTotal)
+
+		// Agent WebSocket metrics
+		write("monti_agent_connections_total", m.AgentConnectionsTotal)
+		write("monti_agent_disconnections_total", m.AgentDisconnectionsTotal)
+		write("monti_agent_active_connections", m.activeAgentConnections)
+		write("monti_agent_heartbeats_total", m.AgentHeartbeatsTotal)
+		write("monti_agent_state_changes_total", m.AgentStateChangesTotal)
+		write("monti_agent_registrations_total", m.AgentRegistrationsTotal)
 
 		// Aggregation metrics
 		write("monti_aggregation_cycles_total", m.AggregationCyclesTotal)

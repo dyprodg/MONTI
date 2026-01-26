@@ -3,7 +3,9 @@ module github.com/dennisdiepolder/monti/backend
 go 1.23
 
 require (
+	github.com/MicahParks/keyfunc/v3 v3.3.5
 	github.com/go-chi/chi/v5 v5.0.11
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
@@ -12,8 +14,9 @@ require (
 )
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/MicahParks/jwkset v0.5.19 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/time v0.5.0 // indirect
 )
