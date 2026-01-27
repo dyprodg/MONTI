@@ -1,0 +1,20 @@
+{$BACKEND_DOMAIN} {
+	# Keycloak paths
+	handle /realms/* {
+		reverse_proxy keycloak:8180
+	}
+	handle /admin/* {
+		reverse_proxy keycloak:8180
+	}
+	handle /resources/* {
+		reverse_proxy keycloak:8180
+	}
+	handle /js/* {
+		reverse_proxy keycloak:8180
+	}
+
+	# Everything else goes to backend API
+	handle /* {
+		reverse_proxy backend:8080
+	}
+}

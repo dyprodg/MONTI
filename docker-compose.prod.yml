@@ -6,7 +6,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:23.0
     container_name: monti-keycloak
-    command: start --optimized
+    command: start-dev
     ports:
       - "8180:8180"
     volumes:
@@ -15,7 +15,7 @@ services:
       - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
       - KC_HTTP_PORT=8180
-      - KC_HOSTNAME=${KC_HOSTNAME:-localhost}
+      - KC_HOSTNAME=${BACKEND_DOMAIN:-montibackend.dennisdiepolder.com}
       - KC_HOSTNAME_STRICT=false
       - KC_HOSTNAME_STRICT_HTTPS=false
       - KC_HTTP_RELATIVE_PATH=/
@@ -115,6 +115,25 @@ services:
       - prometheus
     restart: unless-stopped
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: monti-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      - BACKEND_DOMAIN=${BACKEND_DOMAIN:-montibackend.dennisdiepolder.com}
+    networks:
+      - monti-network
+    depends_on:
+      - backend
+      - keycloak
+    restart: unless-stopped
+
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: monti-cadvisor
@@ -137,3 +156,5 @@ volumes:
   prometheus-data:
   grafana-data:
   keycloak-data:
+  caddy-data:
+  caddy-config:

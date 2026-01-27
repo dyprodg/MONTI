@@ -1,71 +1,27 @@
-# Project MONTI
+# MONTI
 
-**MONTI** is a high-performance live monitoring application for call centers, capable of displaying **2000+ agents in real-time**.
+Real-time call center monitoring platform. Displays 2000+ agents with live status updates via WebSocket.
 
 ## Architecture
 
 ```
-┌─────────────┐     WebSocket      ┌─────────────┐
-│   Browser   │◄──────────────────►│   Backend   │
-│  (React)    │                    │    (Go)     │
-└─────────────┘                    └──────┬──────┘
-                                          │ WebSocket
-                                          ▼
-                                   ┌─────────────┐
-                                   │  AgentSim   │
-                                   │    (Go)     │
-                                   └─────────────┘
-```
-
-- **Real-time updates** via WebSocket (not HTTP polling)
-- **Aggregated data** - Frontend receives grouped metrics, not individual agent updates
-- **Scalable** - Tested with 2000 concurrent WebSocket connections
-
-## Services
-
-| Service | Description | Port |
-|---------|-------------|------|
-| **Frontend** | React dashboard (Vite) | 5173 |
-| **Backend** | Go API + WebSocket server | 8080 |
-| **AgentSim** | Agent simulation service | 8081 |
-| **Keycloak** | Authentication (OIDC) | 8180 |
-| **Prometheus** | Metrics collection | 9090 |
-| **Grafana** | Monitoring dashboards | 3001 |
-
-## Quick Start
-
-```bash
-# Start all services
-docker compose up -d
-
-# Setup Keycloak (realm, users, roles)
-./scripts/setup-keycloak.sh
-
-# Start agent simulation (2000 agents)
-curl -X POST localhost:8081/start -d '{"activeAgents":2000}'
-
-# View dashboard
-open http://localhost:5173
-
-# View Grafana metrics
-open http://localhost:3001
-```
-
-## Demo Credentials
-
-| Service | URL | Username | Password | Role |
-|---------|-----|----------|----------|------|
-| **Frontend** | localhost:5173 | admin | admin | Admin |
-| | | supervisor | supervisor | Supervisor |
-| | | agent | agent | Agent |
-| | | demo | demo | Viewer |
-| **Grafana** | localhost:3001 | admin | admin | - |
-| **Keycloak Admin** | localhost:8180/admin | admin | admin | - |
-
-### Stop simulation
-
-```bash
-curl -X POST localhost:8081/stop
+                        HTTPS
+  ┌──────────┐      ┌───────────┐      ┌────────────────────────────────────┐
+  │ Browser  │─────►│CloudFront │      │  EC2 (Docker Compose + Caddy)     │
+  │ (React)  │      │   + S3    │      │                                   │
+  └──────────┘      └───────────┘      │  ┌──────────┐    ┌────────────┐  │
+       │                               │  │ Backend  │◄───│  AgentSim  │  │
+       │  WebSocket (wss://)           │  │  :8080   │    │   :8081    │  │
+       └──────────────────────────────►│  └──────────┘    └────────────┘  │
+                                       │  ┌──────────┐    ┌────────────┐  │
+                                       │  │ Keycloak │    │ Prometheus │  │
+                                       │  │  :8180   │    │   :9090    │  │
+                                       │  └──────────┘    └────────────┘  │
+                                       │  ┌──────────┐                    │
+                                       │  │ Grafana  │                    │
+                                       │  │  :3001   │                    │
+                                       │  └──────────┘                    │
+                                       └────────────────────────────────────┘
 ```
 
 ## Tech Stack
@@ -73,100 +29,69 @@ curl -X POST localhost:8081/stop
 | Component | Technology |
 |-----------|------------|
 | Frontend | React 18, TypeScript, Vite |
-| Backend | Go 1.23, Chi, gorilla/websocket |
+| Backend | Go 1.23, Chi router, gorilla/websocket |
 | AgentSim | Go 1.23, gorilla/websocket |
-| Auth | Keycloak (OIDC) |
+| Auth | Keycloak 23 (OIDC + PKCE) |
+| Infra | Terraform, S3 + CloudFront, EC2, Caddy |
 | Monitoring | Prometheus + Grafana |
 
-## Development
+## Quick Start (Local Dev)
 
 ```bash
-# Run with hot-reload (volumes mounted)
+# Start all services
 docker compose up -d
 
-# View logs
+# Wait for Keycloak, then run setup
+./scripts/setup-keycloak.sh
+
+# Start agent simulation
+curl -X POST localhost:8081/start -H 'Content-Type: application/json' -d '{"activeAgents":200}'
+
+# Open dashboard
+open http://localhost:5173
+```
+
+## Demo Credentials
+
+| Username | Password | Role | Sees |
+|----------|----------|------|------|
+| admin | admin | admin | All locations |
+| supervisor | supervisor | supervisor | SGB + NGB |
+| agent | agent | agent | SGB only |
+| demo | demo | viewer | RGB only |
+
+Keycloak Admin: http://localhost:8180/admin (admin / admin)
+Grafana: http://localhost:3001 (admin / admin)
+
+## Production URLs
+
+| Service | URL |
+|---------|-----|
+| Frontend | https://monti.dennisdiepolder.com |
+| Backend / API | https://montibackend.dennisdiepolder.com |
+| Keycloak | https://montibackend.dennisdiepolder.com/realms/monti |
+| Grafana | http://3.69.80.81:3001 |
+
+## Documentation
+
+- [Frontend](docs/FRONTEND.md) -- React app, build, deploy to S3
+- [Backend](docs/BACKEND.md) -- Go server, API routes, WebSocket protocol
+- [AgentSim](docs/AGENTSIM.md) -- Simulator, control API, config
+- [Infrastructure](docs/INFRASTRUCTURE.md) -- Terraform, EC2, CloudFront, Caddy, deployment
+- [Auth](docs/AUTH.md) -- Keycloak, OIDC, roles, groups
+
+## Common Commands
+
+```bash
+# Logs
 docker compose logs -f backend
 docker compose logs -f agentsim
 
-# Rebuild after changes
+# Rebuild after code changes
 docker compose up -d --build
 
 # Stop services (preserves data)
 docker compose down
 ```
 
-> **WARNING:** Never use `docker compose down -v` - this destroys all volumes including Keycloak configuration (users, groups, roles).
-
-## Environment Variables
-
-### Backend
-- `PORT` - Server port (default: 8080)
-- `ALLOWED_ORIGINS` - CORS origins
-- `SKIP_AUTH` - Skip JWT validation (dev only)
-
-### AgentSim
-- `AGENTSIM_BACKEND_URL` - Backend WebSocket URL
-- `AGENTSIM_AGENTS` - Total agents to simulate
-- `AGENTSIM_AUTO_START` - Start simulation on boot
-
----
-
-## Hosting Recommendation
-
-### Recommended: EC2 + S3/CloudFront
-
-```
-┌─────────────────────┐     ┌───────────────────┐
-│   S3 + CloudFront   │     │   EC2 t3.medium   │
-│   (Static Frontend) │     │                   │
-│                     │────►│  Backend :8080    │
-│   ~$1/month         │     │  AgentSim :8081   │
-│                     │     │  Prometheus       │
-└─────────────────────┘     │  Grafana          │
-                            │  Keycloak         │
-                            │                   │
-                            │  ~$30/month       │
-                            └───────────────────┘
-```
-
-**Why this setup:**
-- **Faster frontend**: CloudFront CDN globally distributed
-- **Simpler EC2**: Only backend services
-- **Security**: Frontend is static files, minimal attack surface
-
-### Resource Requirements (2000 agents)
-
-| Container | CPU | Memory |
-|-----------|-----|--------|
-| Backend | ~110% (1.1 cores) | ~260 MB |
-| AgentSim | ~11% | ~192 MB |
-| Keycloak | ~1% | ~382 MB |
-| Grafana | ~1% | ~337 MB |
-| Prometheus | ~0% | ~127 MB |
-| **Total** | **~1.2 cores** | **~1.3 GB** |
-
-**EC2 specs:**
-- **t3.medium** (2 vCPU, 4GB RAM) - recommended for 2000 agents
-- t3.small (2 vCPU, 2GB RAM) - minimum, runs at ~65% capacity
-- Amazon Linux 2023
-- Security Group: 80/443 inbound
-
-### Cost Summary
-
-| Resource | Cost/month |
-|----------|-----------|
-| EC2 t3.medium | ~$30 |
-| EC2 t3.small (minimum) | ~$15 |
-| S3 + CloudFront | ~$1 |
-| **Total (recommended)** | **~$31** |
-| **Total (minimum)** | **~$16** |
-
-### CI/CD: GitHub Actions
-
-```
-Push to main
-    │
-    ├─► Frontend: Build → Deploy to S3
-    │
-    └─► Backend: SSH to EC2 → git pull → docker compose up -d
-```
+> **WARNING:** Never use `docker compose down -v` -- this destroys all volumes including Keycloak configuration.

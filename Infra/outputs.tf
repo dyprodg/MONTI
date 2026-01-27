@@ -48,3 +48,14 @@ output "ssh_command" {
   description = "SSH command to connect to EC2"
   value       = "ssh -i ~/.ssh/${var.ec2_key_name}.pem ec2-user@${aws_eip.backend.public_ip}"
 }
+
+# Domains
+output "frontend_url" {
+  description = "Frontend URL"
+  value       = "https://${local.frontend_fqdn}"
+}
+
+output "backend_url" {
+  description = "Backend URL"
+  value       = "https://${local.backend_fqdn}"
+}

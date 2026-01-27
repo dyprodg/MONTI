@@ -188,16 +188,27 @@ Frontend environment variables:
 
 ## Production Configuration
 
+### Production URLs
+
+| Service | URL |
+|---------|-----|
+| Keycloak Issuer | `https://montibackend.dennisdiepolder.com/realms/monti` |
+| Keycloak Admin | `https://montibackend.dennisdiepolder.com/admin` |
+| JWKS Endpoint | `https://montibackend.dennisdiepolder.com/realms/monti/protocol/openid-connect/certs` |
+| Frontend Redirect | `https://monti.dennisdiepolder.com` |
+
+Caddy on the EC2 instance reverse-proxies `/realms/*`, `/admin/*`, `/resources/*`, `/js/*` to Keycloak, so Keycloak is accessible via the backend domain.
+
 ### Checklist
 
-- [ ] HTTPS/TLS termination configured
+- [x] HTTPS/TLS termination configured (Caddy with automatic certs)
 - [ ] `ENV=production` set on backend
 - [ ] `VERIFY_JWT_SIGNATURE=true` (automatic in production)
-- [ ] `OIDC_ISSUER` points to production Keycloak URL
+- [ ] `OIDC_ISSUER` points to `https://montibackend.dennisdiepolder.com/realms/monti`
 - [ ] Keycloak has production admin credentials (not admin/admin)
 - [ ] Token lifespans reviewed for production
 - [ ] Realm exported and backed up
-- [ ] CORS origins configured for production domains
+- [ ] CORS origins include `https://monti.dennisdiepolder.com`
 
 ### Security Considerations
 
@@ -277,8 +288,8 @@ Or re-run `./scripts/setup-keycloak.sh` to recreate the mapper.
 ### CORS errors
 
 Ensure Keycloak client has correct web origins:
-- http://localhost:5173 (development)
-- https://your-domain.com (production)
+- `http://localhost:5173` (development)
+- `https://monti.dennisdiepolder.com` (production)
 
 ## API Endpoints
 

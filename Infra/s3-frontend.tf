@@ -82,15 +82,12 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
-    # Uncomment below when you have a custom domain + ACM certificate
-    # acm_certificate_arn      = aws_acm_certificate.frontend.arn
-    # ssl_support_method       = "sni-only"
-    # minimum_protocol_version = "TLSv1.2_2021"
+    acm_certificate_arn      = aws_acm_certificate_validation.frontend.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  # Uncomment when you have a custom domain
-  # aliases = ["${var.domain_name}", "www.${var.domain_name}"]
+  aliases = [local.frontend_fqdn]
 }
 
 # S3 bucket policy for CloudFront access

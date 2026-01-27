@@ -13,6 +13,20 @@ provider "aws" {
   }
 }
 
+# CloudFront requires ACM certificates in us-east-1
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = "MONTI"
+      ManagedBy   = "Terraform"
+      Environment = var.environment
+    }
+  }
+}
+
 # Data source for current AWS account
 data "aws_caller_identity" "current" {}
 

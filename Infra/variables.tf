@@ -17,9 +17,21 @@ variable "environment" {
 }
 
 variable "domain_name" {
-  description = "Main domain name (e.g., monti.app)"
+  description = "Root domain name"
   type        = string
-  default     = "monti.app"
+  default     = "dennisdiepolder.com"
+}
+
+variable "frontend_subdomain" {
+  description = "Subdomain for frontend (CloudFront)"
+  type        = string
+  default     = "monti"
+}
+
+variable "backend_subdomain" {
+  description = "Subdomain for backend services (EC2)"
+  type        = string
+  default     = "montibackend"
 }
 
 variable "ec2_instance_type" {
