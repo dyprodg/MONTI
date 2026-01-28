@@ -176,6 +176,37 @@ func (t *AgentStateTracker) GetAll() []types.AgentInfo {
 	return states
 }
 
+// GetConnectedAgents returns only agents that are currently connected
+func (t *AgentStateTracker) GetConnectedAgents() []types.AgentInfo {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	states := make([]types.AgentInfo, 0, len(t.agents))
+	for _, state := range t.agents {
+		if state.ConnectionStatus == types.StatusConnected {
+			states = append(states, *state)
+		}
+	}
+	return states
+}
+
+// RemoveDisconnected removes agents that have been disconnected for longer than maxAge
+func (t *AgentStateTracker) RemoveDisconnected(maxAge time.Duration) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	threshold := time.Now().Add(-maxAge)
+	removed := 0
+	for id, agent := range t.agents {
+		if agent.ConnectionStatus == types.StatusDisconnected &&
+			agent.LastHeartbeat.Before(threshold) {
+			delete(t.agents, id)
+			removed++
+		}
+	}
+	return removed
+}
+
 // GetByDepartment returns all agents in a specific department
 func (t *AgentStateTracker) GetByDepartment(dept types.Department) []types.AgentInfo {
 	t.mu.RLock()

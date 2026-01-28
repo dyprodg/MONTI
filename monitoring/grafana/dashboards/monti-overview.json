@@ -356,7 +356,7 @@
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        { "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{id=~\"/docker/[a-f0-9]+\"}[1m])) by (id) * 100, \"short_id\", \"$1\", \"id\", \"/docker/([a-f0-9]{12}).*\")", "legendFormat": "{{short_id}}", "refId": "A" }
+        { "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\"monti-.+\"}[1m])) by (name) * 100", "legendFormat": "{{name}}", "refId": "A" }
       ],
       "title": "CPU Usage per Container",
       "type": "timeseries"
@@ -400,7 +400,7 @@
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        { "expr": "label_replace(container_memory_usage_bytes{id=~\"/docker/[a-f0-9]+\"}, \"short_id\", \"$1\", \"id\", \"/docker/([a-f0-9]{12}).*\")", "legendFormat": "{{short_id}}", "refId": "A" }
+        { "expr": "container_memory_usage_bytes{name=~\"monti-.+\"}", "legendFormat": "{{name}}", "refId": "A" }
       ],
       "title": "Memory Usage per Container",
       "type": "timeseries"

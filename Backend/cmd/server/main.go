@@ -72,6 +72,7 @@ func main() {
 				return
 			case <-ticker.C:
 				stateTracker.CheckStaleAgents()
+				stateTracker.RemoveDisconnected(30 * time.Second) // Remove after 30s disconnected
 			}
 		}
 	}()

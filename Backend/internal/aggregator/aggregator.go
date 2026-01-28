@@ -50,8 +50,8 @@ func (a *Aggregator) Start(ctx context.Context) {
 			// Clear recent events (we don't need them anymore)
 			events := a.cache.GetAndClear()
 
-			// Get all current agent states
-			allAgents := a.stateTracker.GetAll()
+			// Get only connected agents (excludes disconnected/stale)
+			allAgents := a.stateTracker.GetConnectedAgents()
 			if len(allAgents) == 0 {
 				continue
 			}
