@@ -58,7 +58,7 @@ func (ac *AgentConnection) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			ac.close()
+			ac.Close()
 			return
 		default:
 		}
@@ -122,8 +122,8 @@ func (ac *AgentConnection) connect() error {
 	return nil
 }
 
-// close closes the connection
-func (ac *AgentConnection) close() {
+// Close closes the connection
+func (ac *AgentConnection) Close() {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
 

@@ -57,7 +57,7 @@ curl -X POST localhost:8081/stop
 ```bash
 curl -X POST localhost:8081/scale \
   -H 'Content-Type: application/json' \
-  -d '{"targetAgents": 500}'
+  -d '{"targetAgents": 1000}'
 ```
 
 ### Check Status
@@ -65,6 +65,9 @@ curl -X POST localhost:8081/scale \
 ```bash
 curl localhost:8081/status
 ```
+
+curl -X POST localhost:8081/scale -H 'Content-Type: application/json' -d '{"activeAgents": 500}'     
+
 
 ## Environment Variables
 
