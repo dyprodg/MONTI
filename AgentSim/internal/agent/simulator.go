@@ -176,15 +176,15 @@ func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
 
 		for i := 0; i < toRemove && i < len(activeIDs); i++ {
 			id := activeIDs[i]
-			// Close the WebSocket connection first
-			if conn, ok := s.connections[id]; ok {
-				conn.Close()
-				delete(s.connections, id)
-			}
-			// Then cancel the context
+			// Cancel context first to stop reconnect attempts
 			if cancel, ok := s.agentCancels[id]; ok {
 				cancel()
 				delete(s.agentCancels, id)
+			}
+			// Then close the WebSocket connection
+			if conn, ok := s.connections[id]; ok {
+				conn.Close()
+				delete(s.connections, id)
 			}
 			delete(s.activeAgents, id)
 		}

@@ -33,6 +33,7 @@ type AgentConnection struct {
 	backendURL string
 	mu         sync.Mutex
 	connected  bool
+	closed     bool // Permanently closed, no reconnects
 
 	// Metrics
 	heartbeatsSent   int64
@@ -56,6 +57,14 @@ func (ac *AgentConnection) Run(ctx context.Context) {
 	reconnectDelay := initialReconnectDelay
 
 	for {
+		// Check if permanently closed
+		ac.mu.Lock()
+		closed := ac.closed
+		ac.mu.Unlock()
+		if closed {
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			ac.Close()
@@ -122,11 +131,12 @@ func (ac *AgentConnection) connect() error {
 	return nil
 }
 
-// Close closes the connection
+// Close permanently closes the connection and prevents reconnects
 func (ac *AgentConnection) Close() {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
 
+	ac.closed = true // Prevent reconnects
 	if ac.conn != nil {
 		ac.conn.Close()
 		ac.conn = nil

@@ -82,7 +82,7 @@ func (h *AgentHub) Run() {
 			if existing, ok := h.agents[client.agentID]; ok && existing == client {
 				delete(h.agents, client.agentID)
 				client.Close()
-				h.tracker.SetConnected(client.agentID, false)
+				h.tracker.DisconnectAndRemove(client.agentID)
 				m.RecordAgentDisconnect()
 
 				h.logger.Debug().

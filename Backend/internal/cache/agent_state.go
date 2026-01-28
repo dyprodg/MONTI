@@ -151,6 +151,13 @@ func (t *AgentStateTracker) SetConnected(agentID string, connected bool) {
 	}
 }
 
+// DisconnectAndRemove immediately removes an agent from tracking
+func (t *AgentStateTracker) DisconnectAndRemove(agentID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.agents, agentID)
+}
+
 // CheckStaleAgents marks agents as stale if no heartbeat received within threshold
 func (t *AgentStateTracker) CheckStaleAgents() {
 	t.mu.Lock()
