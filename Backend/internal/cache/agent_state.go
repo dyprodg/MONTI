@@ -146,6 +146,7 @@ func (t *AgentStateTracker) SetConnected(agentID string, connected bool) {
 			agent.LastHeartbeat = time.Now()
 		} else {
 			agent.ConnectionStatus = types.StatusDisconnected
+			agent.LastHeartbeat = time.Now() // Track when disconnection happened for cleanup
 		}
 	}
 }
