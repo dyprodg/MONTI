@@ -109,6 +109,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=${GF_ROOT_URL:-http://localhost:3000}
+      - GF_FEATURE_TOGGLES_ENABLE=publicDashboards
     networks:
       - monti-network
     depends_on:
