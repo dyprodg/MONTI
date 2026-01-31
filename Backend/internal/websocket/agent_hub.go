@@ -1,9 +1,11 @@
 package websocket
 
 import (
+	"encoding/json"
 	"sync"
 
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
+	"github.com/dennisdiepolder/monti/backend/internal/ingestion"
 	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/rs/zerolog"
@@ -29,18 +31,24 @@ type AgentHub struct {
 	// Agent registration messages
 	agentRegister chan *types.AgentRegister
 
+	// Call complete messages from agents
+	callComplete chan *types.CallComplete
+
 	// Mutex to protect agents map
 	mu sync.RWMutex
 
 	// Logger
 	logger zerolog.Logger
 
-	// Agent state tracker
+	// Agent state tracker (for connection status management)
 	tracker *cache.AgentStateTracker
+
+	// Event processor (for processing agent events)
+	processor ingestion.EventProcessor
 }
 
 // NewAgentHub creates a new AgentHub
-func NewAgentHub(tracker *cache.AgentStateTracker, logger zerolog.Logger) *AgentHub {
+func NewAgentHub(tracker *cache.AgentStateTracker, processor ingestion.EventProcessor, logger zerolog.Logger) *AgentHub {
 	return &AgentHub{
 		agents:        make(map[string]*AgentClient),
 		register:      make(chan *AgentClient),
@@ -48,8 +56,10 @@ func NewAgentHub(tracker *cache.AgentStateTracker, logger zerolog.Logger) *Agent
 		heartbeat:     make(chan *types.AgentHeartbeat, 1000),
 		stateChange:   make(chan *types.AgentStateChange, 500),
 		agentRegister: make(chan *types.AgentRegister, 100),
+		callComplete:  make(chan *types.CallComplete, 500),
 		logger:        logger,
 		tracker:       tracker,
+		processor:     processor,
 	}
 }
 
@@ -82,7 +92,7 @@ func (h *AgentHub) Run() {
 			if existing, ok := h.agents[client.agentID]; ok && existing == client {
 				delete(h.agents, client.agentID)
 				client.Close()
-				h.tracker.DisconnectAndRemove(client.agentID)
+				h.tracker.SetDisconnected(client.agentID)
 				m.RecordAgentDisconnect()
 
 				h.logger.Debug().
@@ -93,30 +103,63 @@ func (h *AgentHub) Run() {
 			h.mu.Unlock()
 
 		case reg := <-h.agentRegister:
-			h.tracker.RegisterAgent(reg)
-			m.RecordAgentRegister()
-
-			h.logger.Debug().
-				Str("agent_id", reg.AgentID).
-				Str("state", string(reg.State)).
-				Msg("agent registered")
+			h.processor.ProcessRegister(reg)
 
 		case hb := <-h.heartbeat:
-			h.tracker.UpdateFromHeartbeat(hb)
-			m.RecordAgentHeartbeat()
+			h.processor.ProcessHeartbeat(hb)
 
 		case sc := <-h.stateChange:
-			h.tracker.UpdateFromStateChange(sc)
-			m.RecordAgentStateChange()
+			h.processor.ProcessStateChange(sc)
 
-			h.logger.Debug().
-				Str("agent_id", sc.AgentID).
-				Str("prev_state", string(sc.PreviousState)).
-				Str("new_state", string(sc.NewState)).
-				Float64("duration", sc.StateDuration).
-				Msg("agent state change")
+		case cc := <-h.callComplete:
+			h.processor.ProcessCallComplete(cc)
 		}
 	}
+}
+
+// ForceEndCall sends a force_end_call message to the specified agent
+func (h *AgentHub) ForceEndCall(agentID, callID string) bool {
+	msg := types.ForceEndCall{
+		Type:    "force_end_call",
+		CallID:  callID,
+		AgentID: agentID,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to marshal force_end_call")
+		return false
+	}
+	return h.SendToAgent(agentID, data)
+}
+
+// ForceDisconnect sends a force_disconnect message to the agent, then closes the connection
+func (h *AgentHub) ForceDisconnect(agentID string) bool {
+	msg := types.ForceDisconnect{
+		Type:    "force_disconnect",
+		AgentID: agentID,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to marshal force_disconnect")
+		return false
+	}
+
+	// Send the message first
+	h.SendToAgent(agentID, data)
+
+	// Then close the connection
+	h.mu.Lock()
+	client, ok := h.agents[agentID]
+	if ok {
+		delete(h.agents, agentID)
+		client.Close()
+		h.tracker.SetDisconnected(agentID)
+		metrics.Get().RecordAgentDisconnect()
+		h.logger.Info().Str("agent_id", agentID).Msg("agent force-disconnected")
+	}
+	h.mu.Unlock()
+
+	return ok
 }
 
 // AgentCount returns the number of connected agents
@@ -136,10 +179,5 @@ func (h *AgentHub) SendToAgent(agentID string, message []byte) bool {
 		return false
 	}
 
-	select {
-	case client.send <- message:
-		return true
-	default:
-		return false
-	}
+	return client.safeSend(message)
 }

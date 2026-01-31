@@ -115,23 +115,36 @@ func (t *AgentStateTracker) UpdateFromStateChange(sc *types.AgentStateChange) {
 	existing.StateStart = time.Now()
 }
 
-// RegisterAgent registers a new agent connection
+// RegisterAgent registers a new agent connection, updating the existing roster entry if present
 func (t *AgentStateTracker) RegisterAgent(reg *types.AgentRegister) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	now := time.Now()
-	t.agents[reg.AgentID] = &types.AgentInfo{
-		AgentID:          reg.AgentID,
-		State:            reg.State,
-		Department:       reg.Department,
-		Location:         reg.Location,
-		Team:             reg.Team,
-		StateStart:       now,
-		LastUpdate:       now,
-		LastHeartbeat:    now,
-		ConnectionStatus: types.StatusConnected,
-		KPIs:             reg.KPIs,
+	if existing, exists := t.agents[reg.AgentID]; exists {
+		// Update existing roster entry in-place
+		existing.State = reg.State
+		existing.Department = reg.Department
+		existing.Location = reg.Location
+		existing.Team = reg.Team
+		existing.StateStart = now
+		existing.LastUpdate = now
+		existing.LastHeartbeat = now
+		existing.ConnectionStatus = types.StatusConnected
+		existing.KPIs = reg.KPIs
+	} else {
+		t.agents[reg.AgentID] = &types.AgentInfo{
+			AgentID:          reg.AgentID,
+			State:            reg.State,
+			Department:       reg.Department,
+			Location:         reg.Location,
+			Team:             reg.Team,
+			StateStart:       now,
+			LastUpdate:       now,
+			LastHeartbeat:    now,
+			ConnectionStatus: types.StatusConnected,
+			KPIs:             reg.KPIs,
+		}
 	}
 }
 
@@ -151,11 +164,46 @@ func (t *AgentStateTracker) SetConnected(agentID string, connected bool) {
 	}
 }
 
-// DisconnectAndRemove immediately removes an agent from tracking
+// DisconnectAndRemove is kept for API compatibility but now just sets the agent to disconnected/offline
+// instead of deleting. Agents registered via the roster are never removed.
 func (t *AgentStateTracker) DisconnectAndRemove(agentID string) {
+	t.SetDisconnected(agentID)
+}
+
+// SetDisconnected marks an agent as disconnected and offline without removing from the map
+func (t *AgentStateTracker) SetDisconnected(agentID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	delete(t.agents, agentID)
+	if agent, exists := t.agents[agentID]; exists {
+		agent.ConnectionStatus = types.StatusDisconnected
+		agent.State = types.StateOffline
+		agent.StateStart = time.Now()
+		agent.LastHeartbeat = time.Now()
+	}
+}
+
+// RegisterOfflineAgent pre-registers an agent as offline/disconnected (called from roster POST)
+func (t *AgentStateTracker) RegisterOfflineAgent(agentID string, dept types.Department, loc types.Location, team string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Don't overwrite an existing connected agent
+	if existing, exists := t.agents[agentID]; exists && existing.ConnectionStatus == types.StatusConnected {
+		return
+	}
+
+	now := time.Now()
+	t.agents[agentID] = &types.AgentInfo{
+		AgentID:          agentID,
+		State:            types.StateOffline,
+		Department:       dept,
+		Location:         loc,
+		Team:             team,
+		StateStart:       now,
+		LastUpdate:       now,
+		LastHeartbeat:    now,
+		ConnectionStatus: types.StatusDisconnected,
+	}
 }
 
 // CheckStaleAgents marks agents as stale if no heartbeat received within threshold
@@ -184,6 +232,11 @@ func (t *AgentStateTracker) GetAll() []types.AgentInfo {
 	return states
 }
 
+// GetAllAgents returns all agents including offline/disconnected ones
+func (t *AgentStateTracker) GetAllAgents() []types.AgentInfo {
+	return t.GetAll()
+}
+
 // GetConnectedAgents returns only agents that are currently connected
 func (t *AgentStateTracker) GetConnectedAgents() []types.AgentInfo {
 	t.mu.RLock()
@@ -198,21 +251,9 @@ func (t *AgentStateTracker) GetConnectedAgents() []types.AgentInfo {
 	return states
 }
 
-// RemoveDisconnected removes agents that have been disconnected for longer than maxAge
+// RemoveDisconnected is a no-op — agents registered via roster are never removed from the map.
 func (t *AgentStateTracker) RemoveDisconnected(maxAge time.Duration) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	threshold := time.Now().Add(-maxAge)
-	removed := 0
-	for id, agent := range t.agents {
-		if agent.ConnectionStatus == types.StatusDisconnected &&
-			agent.LastHeartbeat.Before(threshold) {
-			delete(t.agents, id)
-			removed++
-		}
-	}
-	return removed
+	return 0
 }
 
 // GetByDepartment returns all agents in a specific department
@@ -227,6 +268,31 @@ func (t *AgentStateTracker) GetByDepartment(dept types.Department) []types.Agent
 		}
 	}
 	return states
+}
+
+// GetAvailableByDepartment returns connected agents in "available" state for a department
+func (t *AgentStateTracker) GetAvailableByDepartment(dept types.Department) []types.AgentInfo {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	states := make([]types.AgentInfo, 0)
+	for _, state := range t.agents {
+		if state.Department == dept &&
+			state.State == types.StateAvailable &&
+			state.ConnectionStatus == types.StatusConnected {
+			states = append(states, *state)
+		}
+	}
+	return states
+}
+
+// Clear removes all agents from the tracker, returning the count of agents cleared
+func (t *AgentStateTracker) Clear() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	count := len(t.agents)
+	t.agents = make(map[string]*types.AgentInfo)
+	return count
 }
 
 // Count returns the total number of tracked agents

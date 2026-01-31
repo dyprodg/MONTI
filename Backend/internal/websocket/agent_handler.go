@@ -31,7 +31,7 @@ func NewAgentHandler(hub *AgentHub, logger zerolog.Logger) *AgentHandler {
 	}
 }
 
-// ServeHTTP handles WebSocket upgrade requests from agents
+// ServeHTTP handles WebSocket upgrade requests from agents (single agent per connection)
 func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := agentUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -46,5 +46,20 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.hub.register <- client
 
 	// Start client pumps
+	client.Start()
+}
+
+// ServeMultiplexedHTTP handles WebSocket upgrade requests for multiplexed agent connections
+func (h *AgentHandler) ServeMultiplexedHTTP(w http.ResponseWriter, r *http.Request) {
+	conn, err := agentUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to upgrade multiplexed agent connection")
+		return
+	}
+
+	// Create multiplexed client
+	client := NewMultiplexedAgentClient(h.hub, conn, h.logger)
+
+	// Start client pumps (registration happens per-agent via messages)
 	client.Start()
 }

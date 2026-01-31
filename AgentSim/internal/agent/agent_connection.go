@@ -25,15 +25,18 @@ const (
 
 // AgentConnection manages the WebSocket connection for a single agent
 type AgentConnection struct {
-	agent      *types.Agent
-	conn       *websocket.Conn
-	send       chan []byte
-	done       chan struct{}
-	logger     zerolog.Logger
-	backendURL string
-	mu         sync.Mutex
-	connected  bool
-	closed     bool // Permanently closed, no reconnects
+	agent          *types.Agent
+	conn           *websocket.Conn
+	send           chan []byte
+	callAssignCh   chan types.CallAssignMsg // incoming call assignments
+	forceEndCallCh chan string              // incoming force_end_call (callID)
+	forceDisconnCh chan struct{}            // incoming force_disconnect
+	done           chan struct{}
+	logger         zerolog.Logger
+	backendURL     string
+	mu             sync.Mutex
+	connected      bool
+	closed         bool // Permanently closed, no reconnects
 
 	// Metrics
 	heartbeatsSent   int64
@@ -44,12 +47,30 @@ type AgentConnection struct {
 // NewAgentConnection creates a new agent connection
 func NewAgentConnection(agent *types.Agent, backendURL string, logger zerolog.Logger) *AgentConnection {
 	return &AgentConnection{
-		agent:      agent,
-		send:       make(chan []byte, 64),
-		done:       make(chan struct{}),
-		logger:     logger.With().Str("agent_id", agent.ID).Logger(),
-		backendURL: backendURL,
+		agent:          agent,
+		send:           make(chan []byte, 64),
+		callAssignCh:   make(chan types.CallAssignMsg, 4),
+		forceEndCallCh: make(chan string, 1),
+		forceDisconnCh: make(chan struct{}, 1),
+		done:           make(chan struct{}),
+		logger:         logger.With().Str("agent_id", agent.ID).Logger(),
+		backendURL:     backendURL,
 	}
+}
+
+// GetCallAssignChan returns the channel where call_assign messages arrive
+func (ac *AgentConnection) GetCallAssignChan() <-chan types.CallAssignMsg {
+	return ac.callAssignCh
+}
+
+// GetForceEndCallChan returns the channel where force_end_call messages arrive
+func (ac *AgentConnection) GetForceEndCallChan() <-chan string {
+	return ac.forceEndCallCh
+}
+
+// GetForceDisconnectChan returns the channel where force_disconnect signals arrive
+func (ac *AgentConnection) GetForceDisconnectChan() <-chan struct{} {
+	return ac.forceDisconnCh
 }
 
 // Run starts the connection and maintains it
@@ -154,11 +175,11 @@ func (ac *AgentConnection) runLoop(ctx context.Context) {
 	go func() {
 		defer close(readDone)
 		for {
-			_, _, err := ac.conn.ReadMessage()
+			_, message, err := ac.conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			// We don't really process incoming messages, just acks
+			ac.handleIncoming(message)
 		}
 	}()
 
@@ -246,6 +267,71 @@ func (ac *AgentConnection) SendStateChange(prevState, newState types.AgentState,
 		ac.stateChangesSent++
 	default:
 		ac.logger.Warn().Msg("send buffer full, dropping state change")
+	}
+}
+
+// handleIncoming processes messages from the backend
+func (ac *AgentConnection) handleIncoming(message []byte) {
+	var msgType struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(message, &msgType); err != nil {
+		return
+	}
+
+	switch msgType.Type {
+	case "call_assign":
+		var ca types.CallAssignMsg
+		if err := json.Unmarshal(message, &ca); err != nil {
+			return
+		}
+		select {
+		case ac.callAssignCh <- ca:
+		default:
+			ac.logger.Warn().Msg("call assign channel full, dropping")
+		}
+	case "force_end_call":
+		var msg struct {
+			CallID string `json:"callId"`
+		}
+		if err := json.Unmarshal(message, &msg); err != nil {
+			return
+		}
+		ac.logger.Info().Str("call_id", msg.CallID).Msg("received force_end_call")
+		select {
+		case ac.forceEndCallCh <- msg.CallID:
+		default:
+		}
+	case "force_disconnect":
+		ac.logger.Info().Msg("received force_disconnect")
+		select {
+		case ac.forceDisconnCh <- struct{}{}:
+		default:
+		}
+		ac.Close()
+	case "ack":
+		// Ignore acks
+	}
+}
+
+// SendCallComplete sends a call_complete message
+func (ac *AgentConnection) SendCallComplete(callID string, talkTime, holdTime float64) {
+	msg := types.CallCompleteMsg{
+		Type:      "call_complete",
+		AgentID:   ac.agent.ID,
+		CallID:    callID,
+		TalkTime:  talkTime,
+		HoldTime:  holdTime,
+		Timestamp: time.Now(),
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	select {
+	case ac.send <- data:
+	default:
 	}
 }
 

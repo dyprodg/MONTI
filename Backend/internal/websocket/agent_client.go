@@ -131,6 +131,14 @@ func (c *AgentClient) handleMessage(message []byte) {
 		}
 		c.hub.stateChange <- &sc
 
+	case "call_complete":
+		var cc types.CallComplete
+		if err := json.Unmarshal(message, &cc); err != nil {
+			c.logger.Debug().Err(err).Msg("failed to parse call_complete message")
+			return
+		}
+		c.hub.callComplete <- &cc
+
 	default:
 		c.logger.Debug().Str("type", msgType.Type).Msg("unknown message type")
 	}
@@ -175,6 +183,9 @@ func (c *AgentClient) Start() {
 // Close safely closes the client's send channel (idempotent)
 func (c *AgentClient) Close() {
 	c.closeOnce.Do(func() {
+		defer func() {
+			recover() // absorb panic if channel was already closed
+		}()
 		close(c.send)
 	})
 }

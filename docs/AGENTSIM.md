@@ -136,7 +136,7 @@ curl -X POST localhost:8081/start \
 # Scale to 500 agents
 curl -X POST localhost:8081/scale \
   -H 'Content-Type: application/json' \
-  -d '{"activeAgents": 500}'
+  -d '{"activeAgents": 1000}'
 
 # Stop simulation
 curl -X POST localhost:8081/stop

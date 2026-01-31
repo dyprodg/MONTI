@@ -183,3 +183,42 @@ func (c *Client) FilterWidget(widget *types.Widget) *types.Widget {
 
 	return filteredWidget
 }
+
+// FilterSnapshot filters a snapshot's agents per department based on the client's allowed locations.
+// Queues are always sent unfiltered. Returns the snapshot (possibly filtered).
+func (c *Client) FilterSnapshot(snapshot *types.Snapshot) *types.Snapshot {
+	// If no claims, return as-is
+	if c.claims == nil {
+		return snapshot
+	}
+
+	// If user has all locations (admin), return original
+	if len(c.claims.AllowedLocations) == len(types.AllLocations) {
+		return snapshot
+	}
+
+	// Filter agents per department by allowed locations, keep queues as-is
+	filtered := &types.Snapshot{
+		Type:        snapshot.Type,
+		Timestamp:   snapshot.Timestamp,
+		Departments: make(map[types.Department]*types.DepartmentData, len(snapshot.Departments)),
+	}
+
+	for dept, data := range snapshot.Departments {
+		var filteredAgents []types.AgentInfo
+		for _, agent := range data.Agents {
+			if c.claims.IsLocationAllowed(agent.Location) {
+				filteredAgents = append(filteredAgents, agent)
+			}
+		}
+		if filteredAgents == nil {
+			filteredAgents = []types.AgentInfo{}
+		}
+		filtered.Departments[dept] = &types.DepartmentData{
+			Agents: filteredAgents,
+			Queues: data.Queues,
+		}
+	}
+
+	return filtered
+}

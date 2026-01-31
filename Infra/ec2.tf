@@ -61,6 +61,33 @@ resource "aws_iam_role_policy" "ssm_policy" {
   })
 }
 
+# Policy for DynamoDB access
+resource "aws_iam_role_policy" "dynamodb_policy" {
+  name = "${var.project_name}-dynamodb-policy"
+  role = aws_iam_role.ec2_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = [
+          aws_dynamodb_table.call_records.arn,
+          aws_dynamodb_table.agent_daily_stats.arn
+        ]
+      }
+    ]
+  })
+}
+
 # Instance profile
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project_name}-ec2-profile"

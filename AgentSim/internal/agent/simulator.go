@@ -17,6 +17,8 @@ type Simulator struct {
 	activeAgents map[string]bool
 	agentCancels map[string]context.CancelFunc
 	connections  map[string]*AgentConnection
+	muxConns     []*MultiplexedConnection
+	useMultiplex bool
 	mu           sync.RWMutex
 	rng          *rand.Rand
 	logger       zerolog.Logger
@@ -25,11 +27,27 @@ type Simulator struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 
+	// Call tracking per agent
+	agentCalls   map[string]*activeCall // agentID -> current call
+	callMu       sync.RWMutex
+
+	// Break tracking per department
+	breakCounts  map[types.Department]int
+	breakMu      sync.Mutex
+
 	// Metrics
 	startTime         time.Time
 	stateTransitions  int64
 	stateChangeCounts map[types.AgentState]int64
 	stateMu           sync.RWMutex
+}
+
+// activeCall tracks the current call being handled by an agent
+type activeCall struct {
+	CallID    string
+	VQ        types.VQName
+	StartTime time.Time
+	HoldTime  float64
 }
 
 // NewSimulator creates a new agent simulator
@@ -39,9 +57,12 @@ func NewSimulator(agents []types.Agent, backendURL string, logger zerolog.Logger
 		activeAgents:      make(map[string]bool),
 		agentCancels:      make(map[string]context.CancelFunc),
 		connections:       make(map[string]*AgentConnection),
+		useMultiplex:      true, // Use multiplexed connections by default
 		rng:               rand.New(rand.NewSource(time.Now().UnixNano())),
 		logger:            logger,
 		backendURL:        backendURL,
+		agentCalls:        make(map[string]*activeCall),
+		breakCounts:       make(map[types.Department]int),
 		startTime:         time.Now(),
 		stateChangeCounts: make(map[types.AgentState]int64),
 	}
@@ -81,6 +102,12 @@ func (s *Simulator) Stop() {
 		cancel()
 		delete(s.agentCancels, id)
 	}
+
+	// Close multiplexed connections
+	for _, mux := range s.muxConns {
+		mux.Close()
+	}
+	s.muxConns = nil
 
 	// Clear connections and active agents
 	s.connections = make(map[string]*AgentConnection)
@@ -138,6 +165,7 @@ func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
 			s.running = true
 		}
 
+		var newAgents []*types.Agent
 		for i := 0; i < needed; i++ {
 			idx := inactiveIndices[i]
 			agent := &s.agents[idx]
@@ -147,13 +175,31 @@ func (s *Simulator) Scale(ctx context.Context, targetAgents int) error {
 			agent.LoginTime = time.Now()
 			agent.KPIs = s.generateInitialKPIs()
 			s.activeAgents[agent.ID] = true
+			newAgents = append(newAgents, agent)
+		}
 
-			// Create WebSocket connection for this agent
-			conn := NewAgentConnection(agent, s.backendURL, s.logger)
-			s.connections[agent.ID] = conn
-			go conn.Run(s.ctx)
+		if s.useMultiplex && len(newAgents) > 0 {
+			// Create multiplexed connections for new agents
+			batchSize := 100
+			for i := 0; i < len(newAgents); i += batchSize {
+				end := i + batchSize
+				if end > len(newAgents) {
+					end = len(newAgents)
+				}
+				batch := newAgents[i:end]
+				muxConn := NewMultiplexedConnection(batch, s.backendURL, s.logger)
+				s.muxConns = append(s.muxConns, muxConn)
+				go muxConn.Run(s.ctx)
+			}
+		} else {
+			for _, agent := range newAgents {
+				conn := NewAgentConnection(agent, s.backendURL, s.logger)
+				s.connections[agent.ID] = conn
+				go conn.Run(s.ctx)
+			}
+		}
 
-			// Start agent goroutine
+		for _, agent := range newAgents {
 			agentCtx, agentCancel := context.WithCancel(s.ctx)
 			s.agentCancels[agent.ID] = agentCancel
 			go s.simulateAgent(agentCtx, agent.ID)
@@ -216,6 +262,8 @@ func (s *Simulator) activateAgents(count int) {
 	// Randomly select agents to activate
 	indices := s.rng.Perm(len(s.agents))[:count]
 
+	// Collect agents for activation
+	var activatedAgents []*types.Agent
 	for _, idx := range indices {
 		agent := &s.agents[idx]
 		agent.State = types.StateAvailable
@@ -224,15 +272,33 @@ func (s *Simulator) activateAgents(count int) {
 		agent.LoginTime = time.Now()
 		agent.KPIs = s.generateInitialKPIs()
 		s.activeAgents[agent.ID] = true
+		activatedAgents = append(activatedAgents, agent)
+	}
 
-		// Create WebSocket connection for this agent
-		conn := NewAgentConnection(agent, s.backendURL, s.logger)
-		s.connections[agent.ID] = conn
-		go conn.Run(s.ctx)
+	if s.useMultiplex {
+		// Create multiplexed connections (~100 agents per connection)
+		batchSize := 100
+		for i := 0; i < len(activatedAgents); i += batchSize {
+			end := i + batchSize
+			if end > len(activatedAgents) {
+				end = len(activatedAgents)
+			}
+			batch := activatedAgents[i:end]
+			muxConn := NewMultiplexedConnection(batch, s.backendURL, s.logger)
+			s.muxConns = append(s.muxConns, muxConn)
+			go muxConn.Run(s.ctx)
+		}
+	} else {
+		// Legacy: one connection per agent
+		for _, agent := range activatedAgents {
+			conn := NewAgentConnection(agent, s.backendURL, s.logger)
+			s.connections[agent.ID] = conn
+			go conn.Run(s.ctx)
+		}
 	}
 }
 
-// simulateAgent runs the state machine for a single agent
+// simulateAgent runs the call-driven state machine for a single agent
 func (s *Simulator) simulateAgent(ctx context.Context, agentID string) {
 	for {
 		select {
@@ -244,15 +310,275 @@ func (s *Simulator) simulateAgent(ctx context.Context, agentID string) {
 				return
 			}
 
-			// Wait in current state for a duration
-			duration := s.getStateDuration(agent.State)
-			time.Sleep(duration)
+			switch agent.State {
+			case types.StateAvailable:
+				// Wait for a call_assign or decide to take a break
+				s.handleAvailable(ctx, agentID, agent)
 
-			// Transition to next state
-			nextState := s.getNextState(agent.State)
-			s.updateAgentState(agentID, nextState)
+			case types.StateOnCall:
+				// Talk duration: 3-30 min
+				talkDuration := time.Duration(180+s.rng.Intn(1620)) * time.Second
+
+				// Get force_end_call channel
+				forceEndCh := s.getForceEndCallChan(agentID)
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(talkDuration):
+					// Normal call completion
+					s.completeCall(agentID, talkDuration.Seconds())
+					s.updateAgentState(agentID, types.StateAfterCallWork)
+				case <-forceEndCh:
+					// Call was force-ended by supervisor
+					s.callMu.Lock()
+					delete(s.agentCalls, agentID)
+					s.callMu.Unlock()
+					s.updateAgentState(agentID, types.StateAvailable)
+				}
+
+			case types.StateAfterCallWork:
+				// ACW: 30s - 4min
+				acwDuration := time.Duration(30+s.rng.Intn(210)) * time.Second
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(acwDuration):
+				}
+				s.updateAgentState(agentID, types.StateAvailable)
+
+			case types.StateBreak:
+				duration := time.Duration(300+s.rng.Intn(300)) * time.Second // 5-10min
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(duration):
+				}
+				s.breakMu.Lock()
+				s.breakCounts[agent.Department]--
+				s.breakMu.Unlock()
+				s.updateAgentState(agentID, types.StateAvailable)
+
+			case types.StateLunch:
+				duration := time.Duration(1800+s.rng.Intn(1800)) * time.Second
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(duration):
+				}
+				s.updateAgentState(agentID, types.StateAvailable)
+
+			case types.StateMeeting:
+				duration := time.Duration(600+s.rng.Intn(1800)) * time.Second
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(duration):
+				}
+				s.updateAgentState(agentID, types.StateAvailable)
+
+			case types.StateTraining:
+				duration := time.Duration(1800+s.rng.Intn(3600)) * time.Second
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(duration):
+				}
+				s.updateAgentState(agentID, types.StateAvailable)
+
+			default:
+				// For any other state, wait a bit and go available
+				duration := s.getStateDuration(agent.State)
+				time.Sleep(duration)
+				s.updateAgentState(agentID, types.StateAvailable)
+			}
 		}
 	}
+}
+
+// handleAvailable waits for a call_assign or self-transitions to break
+func (s *Simulator) handleAvailable(ctx context.Context, agentID string, agent *types.Agent) {
+	// Get the call assign channel
+	var callAssignCh <-chan types.CallAssignMsg
+
+	s.mu.RLock()
+	if conn, ok := s.connections[agentID]; ok {
+		callAssignCh = conn.GetCallAssignChan()
+	} else {
+		// Check multiplexed connections
+		for _, mux := range s.muxConns {
+			ch := mux.GetCallAssignChan(agentID)
+			if ch != nil {
+				callAssignCh = ch
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
+
+	if callAssignCh == nil {
+		// No connection, just wait
+		time.Sleep(time.Second)
+		return
+	}
+
+	// Wait for call or decide to take a break (check every 5-15s)
+	breakTimer := time.NewTimer(time.Duration(5+s.rng.Intn(10)) * time.Second)
+	defer breakTimer.Stop()
+
+	// Get force_disconnect channel
+	forceDisconnCh := s.getForceDisconnectChan(agentID)
+
+	select {
+	case <-ctx.Done():
+		return
+
+	case ca := <-callAssignCh:
+		// Received a call assignment
+		s.callMu.Lock()
+		s.agentCalls[agentID] = &activeCall{
+			CallID:    ca.CallID,
+			VQ:        types.VQName(ca.VQ),
+			StartTime: time.Now(),
+		}
+		s.callMu.Unlock()
+		s.updateAgentState(agentID, types.StateOnCall)
+
+	case <-forceDisconnCh:
+		// Agent was force-disconnected by supervisor
+		s.forceRemoveAgent(agentID)
+		return
+
+	case <-breakTimer.C:
+		// Decide whether to take a break (with cap at ~5% of dept agents)
+		roll := s.rng.Float64()
+		if roll < 0.15 { // 15% chance to take a break when timer fires
+			if s.canTakeBreak(agent.Department) {
+				s.breakMu.Lock()
+				s.breakCounts[agent.Department]++
+				s.breakMu.Unlock()
+				s.updateAgentState(agentID, types.StateBreak)
+			}
+		} else if roll < 0.20 {
+			s.updateAgentState(agentID, types.StateMeeting)
+		} else if roll < 0.22 {
+			s.updateAgentState(agentID, types.StateTraining)
+		}
+		// Otherwise stay available (will loop back)
+	}
+}
+
+// canTakeBreak checks if agent's department is under the ~5% break cap
+func (s *Simulator) canTakeBreak(dept types.Department) bool {
+	s.breakMu.Lock()
+	currentOnBreak := s.breakCounts[dept]
+	s.breakMu.Unlock()
+
+	// Count total active agents in department
+	s.mu.RLock()
+	total := 0
+	for _, agent := range s.agents {
+		if s.activeAgents[agent.ID] && agent.Department == dept {
+			total++
+		}
+	}
+	s.mu.RUnlock()
+
+	if total == 0 {
+		return false
+	}
+
+	maxBreak := total * 5 / 100
+	if maxBreak < 1 {
+		maxBreak = 1
+	}
+	return currentOnBreak < maxBreak
+}
+
+// completeCall finishes the current call for an agent
+func (s *Simulator) completeCall(agentID string, talkTime float64) {
+	s.callMu.Lock()
+	call, ok := s.agentCalls[agentID]
+	if ok {
+		delete(s.agentCalls, agentID)
+	}
+	s.callMu.Unlock()
+
+	if !ok || call == nil {
+		return
+	}
+
+	// Send call_complete via connection
+	s.mu.RLock()
+	if conn, ok := s.connections[agentID]; ok {
+		conn.SendCallComplete(call.CallID, talkTime, call.HoldTime)
+	} else {
+		for _, mux := range s.muxConns {
+			mux.SendCallComplete(agentID, call.CallID, talkTime, call.HoldTime)
+			break
+		}
+	}
+	s.mu.RUnlock()
+}
+
+// getForceEndCallChan returns the force_end_call channel for an agent
+func (s *Simulator) getForceEndCallChan(agentID string) <-chan string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if conn, ok := s.connections[agentID]; ok {
+		return conn.GetForceEndCallChan()
+	}
+	for _, mux := range s.muxConns {
+		ch := mux.GetForceEndCallChan(agentID)
+		if ch != nil {
+			return ch
+		}
+	}
+	// Return a nil channel (blocks forever)
+	return nil
+}
+
+// getForceDisconnectChan returns the force_disconnect channel for an agent
+func (s *Simulator) getForceDisconnectChan(agentID string) <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if conn, ok := s.connections[agentID]; ok {
+		return conn.GetForceDisconnectChan()
+	}
+	for _, mux := range s.muxConns {
+		ch := mux.GetForceDisconnectChan(agentID)
+		if ch != nil {
+			return ch
+		}
+	}
+	return nil
+}
+
+// forceRemoveAgent removes an agent from the active set (called on force_disconnect)
+func (s *Simulator) forceRemoveAgent(agentID string) {
+	s.mu.Lock()
+	if cancel, ok := s.agentCancels[agentID]; ok {
+		cancel()
+		delete(s.agentCancels, agentID)
+	}
+	if conn, ok := s.connections[agentID]; ok {
+		conn.Close()
+		delete(s.connections, agentID)
+	}
+	// Remove from multiplexed connections so agent won't be re-registered on reconnect
+	for _, mux := range s.muxConns {
+		mux.RemoveAgent(agentID)
+	}
+	delete(s.activeAgents, agentID)
+	s.mu.Unlock()
+
+	s.callMu.Lock()
+	delete(s.agentCalls, agentID)
+	s.callMu.Unlock()
+
+	s.logger.Info().Str("agent_id", agentID).Msg("agent force-removed from simulation")
 }
 
 // getAgent safely retrieves an agent by ID
@@ -306,6 +632,14 @@ func (s *Simulator) updateAgentState(agentID string, newState types.AgentState) 
 	// Send state change via WebSocket (non-blocking)
 	if conn != nil {
 		conn.SendStateChange(previousState, newState, stateDuration)
+	} else {
+		// Try multiplexed connections
+		s.mu.RLock()
+		for _, mux := range s.muxConns {
+			mux.SendStateChange(agentID, previousState, newState, stateDuration)
+			break // Agent is on one mux connection
+		}
+		s.mu.RUnlock()
 	}
 }
 
@@ -458,6 +792,17 @@ func (s *Simulator) GetMetrics() map[string]interface{} {
 				totalReconnects += rc
 			}
 		}
+	}
+
+	// Track multiplexed connection metrics
+	for _, mux := range s.muxConns {
+		if mux.IsConnected() {
+			connectedCount++ // Count mux connections
+		}
+		hb, sc, rc := mux.GetMetrics()
+		totalHeartbeats += hb
+		totalStateChanges += sc
+		totalReconnects += rc
 	}
 	s.mu.RUnlock()
 

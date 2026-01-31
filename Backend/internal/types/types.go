@@ -102,6 +102,21 @@ type AgentEvent struct {
 	KPIs          AgentKPIs  `json:"kpis"`
 }
 
+// AlertSeverity represents the severity of an agent alert
+type AlertSeverity string
+
+const (
+	SeverityWarning  AlertSeverity = "warning"
+	SeverityCritical AlertSeverity = "critical"
+)
+
+// AgentAlert represents an alert condition for an agent
+type AgentAlert struct {
+	Rule     string        `json:"rule"`
+	Severity AlertSeverity `json:"severity"`
+	Message  string        `json:"message"`
+}
+
 // AgentInfo represents the current state of an agent
 type AgentInfo struct {
 	AgentID          string                `json:"agentId"`
@@ -114,6 +129,12 @@ type AgentInfo struct {
 	LastHeartbeat    time.Time             `json:"lastHeartbeat"`    // last heartbeat received
 	ConnectionStatus AgentConnectionStatus `json:"connectionStatus"` // connection status
 	KPIs             AgentKPIs             `json:"kpis"`
+	CurrentCallID    string                `json:"currentCallId,omitempty"`    // active call ID
+	CurrentVQ        VQName                `json:"currentVq,omitempty"`        // VQ of active call
+	CallStartTime    *time.Time            `json:"callStartTime,omitempty"`    // when current call started
+	ACWStartTime     *time.Time            `json:"acwStartTime,omitempty"`     // when ACW started
+	BreakStartTime   *time.Time            `json:"breakStartTime,omitempty"`   // when break started
+	Alerts           []AgentAlert          `json:"alerts,omitempty"`           // active alerts
 }
 
 // Widget represents aggregated data for a single widget
@@ -124,6 +145,7 @@ type Widget struct {
 	Summary    WidgetSummary `json:"summary"`
 	Events     []AgentEvent  `json:"events,omitempty"` // Recent events for this widget (deprecated, use Agents instead)
 	Agents     []AgentInfo   `json:"agents,omitempty"` // All agents in this widget
+	Queues     []VQSnapshot  `json:"queues,omitempty"` // VQ snapshots for this department
 }
 
 // WidgetSummary contains aggregated counts
@@ -133,6 +155,20 @@ type WidgetSummary struct {
 	StateBreakdown      map[AgentState]int     `json:"stateBreakdown"`
 	DepartmentBreakdown map[Department]int     `json:"departmentBreakdown,omitempty"`
 	LocationBreakdown   map[Location]int       `json:"locationBreakdown,omitempty"`
+}
+
+// DepartmentData holds agents and queues for a single department
+type DepartmentData struct {
+	Agents []AgentInfo  `json:"agents"`
+	Queues []VQSnapshot `json:"queues"`
+}
+
+// Snapshot is the single payload sent to the frontend every tick
+// Contains all 2000 agents and all 16 queues in one message
+type Snapshot struct {
+	Type        string                     `json:"type"` // always "snapshot"
+	Timestamp   time.Time                  `json:"timestamp"`
+	Departments map[Department]*DepartmentData `json:"departments"`
 }
 
 // AgentConnectionStatus represents the connection status of an agent

@@ -22,7 +22,8 @@ func NewGenerator(seed int64) *Generator {
 	}
 }
 
-// GenerateAgents creates 200 fake agents with realistic distributions
+// GenerateAgents creates agents with equal distribution across departments (500 per dept).
+// The count parameter is ignored; always generates 2000 agents.
 func (g *Generator) GenerateAgents(count int) []types.Agent {
 	departments := []types.Department{
 		types.DeptSales,
@@ -39,16 +40,15 @@ func (g *Generator) GenerateAgents(count int) []types.Agent {
 		types.LocationRemote,
 	}
 
-	// Distribution: 30% Sales, 35% Support, 20% Technical, 15% Retention
-	deptWeights := []int{30, 35, 20, 15}
-
 	// Distribution: 25% Berlin, 20% Munich, 15% Hamburg, 15% Frankfurt, 25% Remote
 	locWeights := []int{25, 20, 15, 15, 25}
 
-	g.agents = make([]types.Agent, count)
+	perDept := 500
+	total := perDept * len(departments)
+	g.agents = make([]types.Agent, total)
 
-	for i := 0; i < count; i++ {
-		dept := g.weightedChoice(departments, deptWeights).(types.Department)
+	for i := 0; i < total; i++ {
+		dept := departments[i/perDept]
 		loc := g.weightedChoice(locations, locWeights).(types.Location)
 		team := g.generateTeamName(dept, i)
 

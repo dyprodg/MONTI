@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/alerts"
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
 	"github.com/dennisdiepolder/monti/backend/internal/metrics"
 	"github.com/dennisdiepolder/monti/backend/internal/types"
@@ -12,11 +13,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// VQSnapshotProvider provides VQ snapshots grouped by department
+type VQSnapshotProvider interface {
+	GetAllSnapshots() map[types.Department][]types.VQSnapshot
+}
+
 // Aggregator collects events and creates widgets
 type Aggregator struct {
 	cache        *cache.EventCache
 	stateTracker *cache.AgentStateTracker
 	hub          *websocket.Hub
+	callQueue    VQSnapshotProvider
 	logger       zerolog.Logger
 }
 
@@ -30,7 +37,12 @@ func NewAggregator(cache *cache.EventCache, stateTracker *cache.AgentStateTracke
 	}
 }
 
-// Start begins aggregating events and broadcasting widgets
+// SetCallQueue sets the VQ snapshot provider
+func (a *Aggregator) SetCallQueue(cq VQSnapshotProvider) {
+	a.callQueue = cq
+}
+
+// Start begins aggregating events and broadcasting a single snapshot every tick
 func (a *Aggregator) Start(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -47,114 +59,76 @@ func (a *Aggregator) Start(ctx context.Context) {
 		case <-ticker.C:
 			cycleStart := time.Now()
 
-			// Clear recent events (we don't need them anymore)
-			events := a.cache.GetAndClear()
+			// Clear recent events
+			a.cache.GetAndClear()
 
-			// Get only connected agents (excludes disconnected/stale)
-			allAgents := a.stateTracker.GetConnectedAgents()
-			if len(allAgents) == 0 {
+			// Get ALL agents (including offline/disconnected)
+			allAgents := a.stateTracker.GetAllAgents()
+
+			// Only connected agents for metrics and alerts
+			connectedAgents := a.stateTracker.GetConnectedAgents()
+			if len(connectedAgents) > 0 {
+				m.UpdateAgentStats(connectedAgents)
+				alerts.CheckAgentAlerts(connectedAgents)
+			}
+
+			// Get VQ snapshots
+			var vqSnapshots map[types.Department][]types.VQSnapshot
+			if a.callQueue != nil {
+				vqSnapshots = a.callQueue.GetAllSnapshots()
+			}
+
+			// Build one snapshot with everything
+			snapshot := a.buildSnapshot(allAgents, vqSnapshots)
+
+			data, err := json.Marshal(snapshot)
+			if err != nil {
+				a.logger.Error().Err(err).Msg("failed to marshal snapshot")
+				m.RecordAggregationError()
 				continue
 			}
 
-			// Update agent metrics
-			m.UpdateAgentStats(allAgents)
-
-			// Create widgets from all agent states
-			widgets := a.createWidgetsFromStates(allAgents)
-			widgetCount := 0
-
-			for _, widget := range widgets {
-				data, err := json.Marshal(widget)
-				if err != nil {
-					a.logger.Error().Err(err).Msg("failed to marshal widget")
-					m.RecordAggregationError()
-					continue
-				}
-
-				a.logger.Debug().
-					Str("widget_type", widget.Type).
-					Str("department", string(widget.Department)).
-					Int("agent_count", len(widget.Agents)).
-					Int("recent_events", len(events)).
-					Msg("broadcasting widget")
-
-				a.hub.Broadcast(data)
-				widgetCount++
-			}
+			a.hub.Broadcast(data)
 
 			// Record aggregation cycle metrics
-			m.RecordAggregationCycle(time.Since(cycleStart), widgetCount)
+			m.RecordAggregationCycle(time.Since(cycleStart), 1)
 
 			a.logger.Debug().
-				Int("events_processed", len(events)).
 				Int("total_agents", len(allAgents)).
-				Int("widgets_created", len(widgets)).
+				Int("payload_bytes", len(data)).
 				Int("clients", a.hub.ClientCount()).
-				Msg("widgets broadcasted")
+				Msg("snapshot broadcasted")
 		}
 	}
 }
 
-// createWidgetsFromStates generates widgets from current agent states
-func (a *Aggregator) createWidgetsFromStates(agents []types.AgentInfo) []types.Widget {
+// buildSnapshot creates a single Snapshot containing all agents and all queues
+func (a *Aggregator) buildSnapshot(agents []types.AgentInfo, vqSnapshots map[types.Department][]types.VQSnapshot) types.Snapshot {
 	// Group agents by department
 	deptAgents := make(map[types.Department][]types.AgentInfo)
 	for _, agent := range agents {
 		deptAgents[agent.Department] = append(deptAgents[agent.Department], agent)
 	}
 
-	widgets := make([]types.Widget, 0, 5)
-
-	// 1. Global overview widget
-	widgets = append(widgets, a.createGlobalWidgetFromStates(agents))
-
-	// 2-5. Department widgets
-	for dept, deptAgs := range deptAgents {
-		widgets = append(widgets, a.createDepartmentWidgetFromStates(dept, deptAgs))
+	// Build department data (ensure all 4 departments are always present)
+	departments := make(map[types.Department]*types.DepartmentData, 4)
+	for _, dept := range []types.Department{types.DeptSales, types.DeptSupport, types.DeptTechnical, types.DeptRetention} {
+		departments[dept] = &types.DepartmentData{
+			Agents: deptAgents[dept],
+			Queues: vqSnapshots[dept],
+		}
+		// Ensure non-nil slices for clean JSON
+		if departments[dept].Agents == nil {
+			departments[dept].Agents = []types.AgentInfo{}
+		}
+		if departments[dept].Queues == nil {
+			departments[dept].Queues = []types.VQSnapshot{}
+		}
 	}
 
-	return widgets
-}
-
-// createGlobalWidgetFromStates creates a global overview widget from agent states
-func (a *Aggregator) createGlobalWidgetFromStates(agents []types.AgentInfo) types.Widget {
-	summary := types.WidgetSummary{
-		TotalAgents:         len(agents),
-		StateBreakdown:      make(map[types.AgentState]int),
-		DepartmentBreakdown: make(map[types.Department]int),
-	}
-
-	for _, agent := range agents {
-		summary.StateBreakdown[agent.State]++
-		summary.DepartmentBreakdown[agent.Department]++
-	}
-
-	return types.Widget{
-		Type:      "global_overview",
-		Timestamp: time.Now(),
-		Summary:   summary,
-		Agents:    agents,
-	}
-}
-
-// createDepartmentWidgetFromStates creates a department-specific widget from agent states
-func (a *Aggregator) createDepartmentWidgetFromStates(dept types.Department, agents []types.AgentInfo) types.Widget {
-	summary := types.WidgetSummary{
-		TotalAgents:       len(agents),
-		StateBreakdown:    make(map[types.AgentState]int),
-		LocationBreakdown: make(map[types.Location]int),
-	}
-
-	for _, agent := range agents {
-		summary.StateBreakdown[agent.State]++
-		summary.LocationBreakdown[agent.Location]++
-	}
-
-	return types.Widget{
-		Type:       "department_overview",
-		Department: dept,
-		Timestamp:  time.Now(),
-		Summary:    summary,
-		Agents:     agents,
+	return types.Snapshot{
+		Type:        "snapshot",
+		Timestamp:   time.Now(),
+		Departments: departments,
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dennisdiepolder/monti/agentsim/internal/callgen"
 	"github.com/dennisdiepolder/monti/agentsim/internal/types"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -15,15 +16,18 @@ import (
 
 // API provides HTTP control interface for the simulation
 type API struct {
-	config      *types.SimulationConfig
-	status      *types.SimulationStatus
-	mu          sync.RWMutex
-	logger      zerolog.Logger
-	startFunc   func(int) error
-	stopFunc    func() error
-	scaleFunc   func(int) error
-	statsFunc   func() map[string]interface{}
-	metricsFunc func() map[string]interface{}
+	config        *types.SimulationConfig
+	status        *types.SimulationStatus
+	mu            sync.RWMutex
+	logger        zerolog.Logger
+	startFunc     func(int) error
+	stopFunc      func() error
+	scaleFunc     func(int) error
+	statsFunc     func() map[string]interface{}
+	metricsFunc   func() map[string]interface{}
+	callGenerator *callgen.CallGenerator
+	callAPIClient *callgen.CallAPIClient
+	backendURL    string
 }
 
 // NewAPI creates a new control API
@@ -59,6 +63,17 @@ func (api *API) SetHandlers(start func(int) error, stop func() error, scale func
 	api.metricsFunc = metrics
 }
 
+// SetCallGenerator sets the call generator for call control endpoints
+func (api *API) SetCallGenerator(cg *callgen.CallGenerator) {
+	api.callGenerator = cg
+}
+
+// SetCallAPIClient sets the call API client for direct backend calls
+func (api *API) SetCallAPIClient(client *callgen.CallAPIClient, backendURL string) {
+	api.callAPIClient = client
+	api.backendURL = backendURL
+}
+
 // SetupRoutes configures HTTP routes
 func (api *API) SetupRoutes(router *mux.Router) {
 	router.HandleFunc("/health", api.healthHandler).Methods("GET")
@@ -69,6 +84,12 @@ func (api *API) SetupRoutes(router *mux.Router) {
 	router.HandleFunc("/config", api.configHandler).Methods("GET", "PUT")
 	router.HandleFunc("/stats", api.statsHandler).Methods("GET")
 	router.HandleFunc("/metrics", api.metricsHandler).Methods("GET")
+
+	// Call generation control
+	router.HandleFunc("/calls/config", api.callsConfigHandler).Methods("GET", "PUT")
+	router.HandleFunc("/calls/inject", api.callsInjectHandler).Methods("POST")
+	router.HandleFunc("/calls/stats", api.callsStatsHandler).Methods("GET")
+	router.HandleFunc("/calls/all", api.callsWipeHandler).Methods("DELETE")
 }
 
 // healthHandler returns service health
@@ -289,4 +310,152 @@ func (api *API) GetConfig() types.SimulationConfig {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	return *api.config
+}
+
+// callsConfigHandler gets or updates call generation config
+func (api *API) callsConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if api.callGenerator == nil {
+		http.Error(w, "call generator not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	if r.Method == "GET" {
+		configs := api.callGenerator.GetDepartmentConfigs()
+		result := map[string]interface{}{
+			"peakHourFactor": api.callGenerator.PeakHourFactor(),
+			"departments":    map[string]interface{}{},
+		}
+		depts := result["departments"].(map[string]interface{})
+		for dept, cfg := range configs {
+			depts[string(dept)] = map[string]interface{}{
+				"callsPerMin": cfg.CallsPerMin,
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// PUT - update call generation config
+	var req struct {
+		PeakHourFactor *float64           `json:"peakHourFactor,omitempty"`
+		Departments    map[string]struct {
+			CallsPerMin float64 `json:"callsPerMin"`
+		} `json:"departments,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.PeakHourFactor != nil {
+		api.callGenerator.SetPeakHourFactor(*req.PeakHourFactor)
+	}
+
+	if req.Departments != nil {
+		current := api.callGenerator.GetDepartmentConfigs()
+		for deptName, update := range req.Departments {
+			dept := types.Department(deptName)
+			if existing, ok := current[dept]; ok {
+				existing.CallsPerMin = update.CallsPerMin
+				api.callGenerator.SetDepartmentConfig(dept, existing)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "call config updated"})
+}
+
+// callsInjectHandler injects N calls across VQs
+func (api *API) callsInjectHandler(w http.ResponseWriter, r *http.Request) {
+	if api.callAPIClient == nil {
+		http.Error(w, "call API client not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Count int    `json:"count"`
+		VQ    string `json:"vq,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Count <= 0 {
+		req.Count = 1
+	}
+	if req.Count > 1000 {
+		req.Count = 1000
+	}
+
+	allVQs := []string{
+		"sales_inbound", "sales_outbound", "sales_callback", "sales_chat",
+		"support_general", "support_billing", "support_callback", "support_chat",
+		"tech_l1", "tech_l2", "tech_callback", "tech_chat",
+		"retention_save", "retention_cancel", "retention_callback", "retention_chat",
+	}
+
+	injected := 0
+	errors := 0
+	for i := 0; i < req.Count; i++ {
+		vq := req.VQ
+		if vq == "" {
+			vq = allVQs[i%len(allVQs)]
+		}
+		if err := api.callAPIClient.EnqueueCall(vq); err != nil {
+			api.logger.Error().Err(err).Str("vq", vq).Msg("failed to inject call")
+			errors++
+		} else {
+			injected++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":  fmt.Sprintf("injected %d calls", injected),
+		"injected": injected,
+		"errors":   errors,
+	})
+}
+
+// callsWipeHandler wipes all calls from the backend
+func (api *API) callsWipeHandler(w http.ResponseWriter, r *http.Request) {
+	if api.backendURL == "" {
+		http.Error(w, "backend URL not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodDelete, api.backendURL+"/internal/calls/all", nil)
+	if err != nil {
+		http.Error(w, "failed to create request", http.StatusInternalServerError)
+		return
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		api.logger.Error().Err(err).Msg("failed to wipe calls on backend")
+		http.Error(w, "failed to contact backend", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// callsStatsHandler returns call generation statistics
+func (api *API) callsStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if api.callGenerator == nil {
+		http.Error(w, "call generator not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	stats := api.callGenerator.GetStats()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }

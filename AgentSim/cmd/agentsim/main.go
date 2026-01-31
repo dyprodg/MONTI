@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -12,7 +15,9 @@ import (
 	"time"
 
 	"github.com/dennisdiepolder/monti/agentsim/internal/agent"
+	"github.com/dennisdiepolder/monti/agentsim/internal/callgen"
 	"github.com/dennisdiepolder/monti/agentsim/internal/control"
+	agentTypes "github.com/dennisdiepolder/monti/agentsim/internal/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -46,14 +51,17 @@ func getEnvBool(key string, fallback bool) bool {
 }
 
 type App struct {
-	generator  *agent.Generator
-	simulator  *agent.Simulator
-	controlAPI *control.API
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	logger     zerolog.Logger
-	backendURL string
+	generator     *agent.Generator
+	simulator     *agent.Simulator
+	callGenerator *callgen.CallGenerator
+	controlAPI    *control.API
+	ctx           context.Context    // root context — only cancelled on process shutdown
+	cancel        context.CancelFunc // root cancel
+	simCtx        context.Context    // simulation context — cancelled on stop
+	simCancel     context.CancelFunc // simulation cancel
+	mu            sync.Mutex
+	logger        zerolog.Logger
+	backendURL    string
 }
 
 func main() {
@@ -98,14 +106,21 @@ func main() {
 	}
 	app.ctx, app.cancel = context.WithCancel(context.Background())
 
-	// Generate agents
-	logger.Info().Int("count", *agentCount).Msg("generating agents")
+	// Generate agents (always 2000: 500 per department)
+	logger.Info().Msg("generating agents (500 per department)")
 	app.generator = agent.NewGenerator(time.Now().UnixNano())
-	agents := app.generator.GenerateAgents(*agentCount)
+	agents := app.generator.GenerateAgents(0) // count ignored, always 2000
 	logger.Info().Int("generated", len(agents)).Msg("agents generated")
+
+	// POST roster to backend so all agents are pre-registered (retry until backend is reachable)
+	go postRoster(logger, *backendURL, agents)
 
 	// Create simulator
 	app.simulator = agent.NewSimulator(agents, *backendURL, logger)
+
+	// Create call generator
+	callAPIClient := callgen.NewCallAPIClient(*backendURL)
+	app.callGenerator = callgen.NewCallGenerator(callAPIClient)
 
 	// Create control API
 	app.controlAPI = control.NewAPI(logger)
@@ -117,6 +132,8 @@ func main() {
 		app.getStats,
 		app.getMetrics,
 	)
+	app.controlAPI.SetCallGenerator(app.callGenerator)
+	app.controlAPI.SetCallAPIClient(callAPIClient, *backendURL)
 
 	// Start control API
 	go func() {
@@ -158,8 +175,14 @@ func (app *App) startSimulation(activeAgents int) error {
 
 	app.logger.Info().Int("active_agents", activeAgents).Msg("starting simulation")
 
+	// Create a child context for this simulation run
+	app.simCtx, app.simCancel = context.WithCancel(app.ctx)
+
 	// Start simulator
-	go app.simulator.Start(app.ctx, activeAgents)
+	go app.simulator.Start(app.simCtx, activeAgents)
+
+	// Start call generator (generates calls and posts to backend)
+	go app.callGenerator.Run(app.simCtx)
 
 	return nil
 }
@@ -170,14 +193,14 @@ func (app *App) stopSimulation() error {
 
 	app.logger.Info().Msg("stopping simulation")
 
-	// Stop the simulator (cancels agent goroutines)
+	// Stop the simulator (cancels agent goroutines and closes connections)
 	app.simulator.Stop()
 
-	// Cancel context to stop all goroutines
-	app.cancel()
-
-	// Recreate context for potential restart
-	app.ctx, app.cancel = context.WithCancel(context.Background())
+	// Cancel the simulation context to stop call generator and any other sim goroutines
+	if app.simCancel != nil {
+		app.simCancel()
+		app.simCancel = nil
+	}
 
 	return nil
 }
@@ -188,8 +211,12 @@ func (app *App) scaleSimulation(targetAgents int) error {
 
 	app.logger.Info().Int("target_agents", targetAgents).Msg("scaling simulation")
 
+	if app.simCtx == nil {
+		return fmt.Errorf("simulation not running")
+	}
+
 	// Scale the simulator to the target number of agents
-	return app.simulator.Scale(app.ctx, targetAgents)
+	return app.simulator.Scale(app.simCtx, targetAgents)
 }
 
 func (app *App) getStats() map[string]interface{} {
@@ -201,6 +228,48 @@ func (app *App) getStats() map[string]interface{} {
 
 func (app *App) getMetrics() map[string]interface{} {
 	return app.simulator.GetMetrics()
+}
+
+// rosterEntry is the JSON payload for each agent in the roster POST
+type rosterEntry struct {
+	AgentID    string               `json:"agentId"`
+	Department agentTypes.Department `json:"department"`
+	Location   agentTypes.Location   `json:"location"`
+	Team       string               `json:"team"`
+}
+
+// postRoster sends the full agent roster to the backend with retry
+func postRoster(logger zerolog.Logger, backendURL string, agents []agentTypes.Agent) {
+	roster := make([]rosterEntry, len(agents))
+	for i, a := range agents {
+		roster[i] = rosterEntry{
+			AgentID:    a.ID,
+			Department: a.Department,
+			Location:   a.Location,
+			Team:       a.Team,
+		}
+	}
+
+	body, err := json.Marshal(roster)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to marshal roster")
+	}
+
+	url := backendURL + "/internal/agents/roster"
+	for {
+		resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				logger.Info().Int("agents", len(roster)).Msg("roster posted to backend")
+				return
+			}
+			logger.Warn().Int("status", resp.StatusCode).Msg("roster POST failed, retrying...")
+		} else {
+			logger.Warn().Err(err).Msg("backend not reachable for roster, retrying...")
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 func printUsage(port string) {
@@ -217,12 +286,18 @@ func printUsage(port string) {
 	fmt.Printf("  POST http://localhost:%s/scale    - Scale active agents\n", port)
 	fmt.Printf("  GET  http://localhost:%s/config   - Get configuration\n", port)
 	fmt.Printf("  GET  http://localhost:%s/stats    - Get statistics\n", port)
-	fmt.Printf("  GET  http://localhost:%s/metrics  - Prometheus metrics\n", port)
+	fmt.Printf("  GET  http://localhost:%s/metrics       - Prometheus metrics\n", port)
+	fmt.Printf("  GET  http://localhost:%s/calls/config  - Call generation config\n", port)
+	fmt.Printf("  PUT  http://localhost:%s/calls/config  - Update call gen config\n", port)
+	fmt.Printf("  POST http://localhost:%s/calls/inject  - Inject single call\n", port)
+	fmt.Printf("  GET  http://localhost:%s/calls/stats   - Call gen statistics\n", port)
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Printf("  curl http://localhost:%s/status\n", port)
 	fmt.Printf("  curl -X POST http://localhost:%s/start -d '{\"activeAgents\":100}'\n", port)
 	fmt.Printf("  curl -X POST http://localhost:%s/scale -d '{\"activeAgents\":500}'\n", port)
 	fmt.Printf("  curl -X POST http://localhost:%s/stop\n", port)
+	fmt.Printf("  curl http://localhost:%s/calls/config\n", port)
+	fmt.Printf("  curl -X PUT http://localhost:%s/calls/config -d '{\"peakHourFactor\":1.5}'\n", port)
 	fmt.Println()
 }

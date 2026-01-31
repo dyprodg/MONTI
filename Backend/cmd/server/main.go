@@ -10,11 +10,15 @@ import (
 	"time"
 
 	"github.com/dennisdiepolder/monti/backend/internal/aggregator"
+	"github.com/dennisdiepolder/monti/backend/internal/api"
 	"github.com/dennisdiepolder/monti/backend/internal/auth"
 	"github.com/dennisdiepolder/monti/backend/internal/cache"
+	"github.com/dennisdiepolder/monti/backend/internal/callqueue"
 	"github.com/dennisdiepolder/monti/backend/internal/config"
 	"github.com/dennisdiepolder/monti/backend/internal/event"
+	"github.com/dennisdiepolder/monti/backend/internal/ingestion"
 	"github.com/dennisdiepolder/monti/backend/internal/metrics"
+	"github.com/dennisdiepolder/monti/backend/internal/storage"
 	"github.com/dennisdiepolder/monti/backend/internal/websocket"
 	"github.com/dennisdiepolder/monti/backend/pkg/middleware"
 	"github.com/go-chi/chi/v5"
@@ -58,8 +62,22 @@ func main() {
 	// Create agent state tracker
 	stateTracker := cache.NewAgentStateTracker()
 
+	// Create event processor
+	processor := ingestion.NewDefaultProcessor(stateTracker, log.Logger)
+
+	// Initialize storage
+	store, err := storage.NewStore(ctx, log.Logger)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to initialize storage")
+	}
+
+	// Create call queue manager
+	callQueueMgr := callqueue.NewCallQueueManager(stateTracker, log.Logger)
+	callQueueMgr.SetStore(store)
+	processor.SetCallCompleter(callQueueMgr)
+
 	// Create agent WebSocket hub
-	agentHub := websocket.NewAgentHub(stateTracker, log.Logger)
+	agentHub := websocket.NewAgentHub(stateTracker, processor, log.Logger)
 	go agentHub.Run()
 
 	// Start stale agent checker (every 2 seconds)
@@ -88,6 +106,11 @@ func main() {
 	// Create agent WebSocket handler
 	agentWsHandler := websocket.NewAgentHandler(agentHub, log.Logger)
 
+	// Create call handler and routing loop
+	callHandler := callqueue.NewCallHandler(callQueueMgr, log.Logger)
+	routingLoop := callqueue.NewRoutingLoop(callQueueMgr, agentHub, log.Logger)
+	go routingLoop.Start(ctx)
+
 	// Create event cache
 	eventCache := cache.NewEventCache()
 
@@ -96,6 +119,7 @@ func main() {
 
 	// Create aggregator
 	aggregatorService := aggregator.NewAggregator(eventCache, stateTracker, hub, log.Logger)
+	aggregatorService.SetCallQueue(callQueueMgr)
 	go aggregatorService.Start(ctx)
 
 	// Create router
@@ -112,19 +136,68 @@ func main() {
 	r.Get("/health", healthHandler)
 	r.Get("/metrics", metrics.Get().Handler())
 
+	// Create roster handler
+	rosterHandler := api.NewRosterHandler(stateTracker, log.Logger)
+
 	// Internal routes (no auth - for internal services like AgentSim)
 	r.Route("/internal", func(r chi.Router) {
 		r.Post("/event", eventReceiver.HandleEvent)
 		r.Get("/event/stats", eventReceiver.GetStats)
+		r.Post("/call/enqueue", callHandler.HandleEnqueue)
+		r.Post("/calls/inject", callHandler.HandleEnqueue) // alias for inject
+		r.Get("/calls/stats", callHandler.HandleStats)
+		r.Delete("/calls/all", callHandler.HandleWipeAll)
+		r.Post("/agents/roster", rosterHandler.HandleRoster)
 	})
 
-	// Agent WebSocket endpoint (no auth - for internal AgentSim connections)
+	// Agent WebSocket endpoints (no auth - for internal AgentSim connections)
 	r.Get("/ws/agent", agentWsHandler.ServeHTTP)
+	r.Get("/ws/agent/multiplexed", agentWsHandler.ServeMultiplexedHTTP)
+
+	// Create agent history handler
+	agentHistoryHandler := api.NewAgentHistoryHandler(store, log.Logger)
+
+	// Create agent actions handler
+	agentActionsHandler := api.NewAgentActionsHandler(agentHub, callQueueMgr, log.Logger)
+
+	// Create admin handler for simulation control
+	agentSimURL := os.Getenv("AGENTSIM_URL")
+	if agentSimURL == "" {
+		agentSimURL = "http://localhost:8081"
+	}
+	adminHandler := api.NewAdminHandler(agentSimURL, stateTracker, callQueueMgr, store, log.Logger)
 
 	// Add auth middleware for protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware)
+
+		// Public authenticated routes (any role)
 		r.Get("/ws", wsHandler.ServeHTTP)
+		r.Get("/api/agents/{agentId}/history", agentHistoryHandler.GetHistory)
+		r.Get("/api/agents/{agentId}/calls", agentHistoryHandler.GetCalls)
+
+		// Supervisor routes (manager/supervisor + admin only)
+		r.Group(func(r chi.Router) {
+			r.Use(api.RequireManagerOrAdmin)
+			r.Post("/api/agents/{agentId}/calls/{callId}/end", agentActionsHandler.ForceEndCall)
+			r.Post("/api/agents/{agentId}/logout", agentActionsHandler.Logout)
+		})
+
+		// Admin routes (admin only)
+		r.Route("/api/admin", func(r chi.Router) {
+			r.Use(api.RequireAdmin)
+			r.Get("/sim/status", adminHandler.GetSimStatus)
+			r.Post("/sim/start", adminHandler.StartSim)
+			r.Post("/sim/stop", adminHandler.StopSim)
+			r.Post("/sim/scale", adminHandler.ScaleSim)
+			r.Get("/calls/config", adminHandler.GetCallConfig)
+			r.Put("/calls/config", adminHandler.UpdateCallConfig)
+			r.Post("/calls/inject", adminHandler.InjectCalls)
+			r.Delete("/calls/all", adminHandler.WipeAllCalls)
+			r.Post("/reset/memory", adminHandler.ResetMemory)
+			r.Delete("/reset/dynamo", adminHandler.WipeDynamo)
+			r.Post("/agents/logoff-all", adminHandler.LogoffAll)
+		})
 	})
 
 	// Create HTTP server

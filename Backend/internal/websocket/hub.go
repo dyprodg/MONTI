@@ -72,16 +72,29 @@ func (h *Hub) Run() {
 
 		case message := <-h.broadcast:
 			m.RecordWebSocketMessage()
-			// Try to parse as a Widget for per-client filtering
-			var widget types.Widget
-			if err := json.Unmarshal(message, &widget); err != nil {
-				// Not a widget, broadcast as-is to all clients
+
+			// Check message type
+			var msgType struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(message, &msgType); err != nil {
 				h.broadcastRaw(message)
 				continue
 			}
 
-			// Broadcast with per-client RBAC filtering
-			h.broadcastFiltered(&widget)
+			switch msgType.Type {
+			case "snapshot":
+				// Single snapshot with all agents + all queues — apply per-client RBAC
+				var snapshot types.Snapshot
+				if err := json.Unmarshal(message, &snapshot); err != nil {
+					h.broadcastRaw(message)
+					continue
+				}
+				h.broadcastSnapshot(&snapshot)
+
+			default:
+				h.broadcastRaw(message)
+			}
 		}
 	}
 }
@@ -117,30 +130,24 @@ func (h *Hub) broadcastRaw(message []byte) {
 	}
 }
 
-// broadcastFiltered sends a widget to each client after applying RBAC filtering
-func (h *Hub) broadcastFiltered(widget *types.Widget) {
+// broadcastSnapshot sends the snapshot to each client after applying RBAC filtering
+func (h *Hub) broadcastSnapshot(snapshot *types.Snapshot) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	for client := range h.clients {
 		// Apply client-specific RBAC filter
-		filtered := client.FilterWidget(widget)
-		if filtered == nil {
-			// Client doesn't have access to any agents in this widget
-			continue
-		}
+		filtered := client.FilterSnapshot(snapshot)
 
-		// Marshal the filtered widget
 		data, err := json.Marshal(filtered)
 		if err != nil {
-			h.logger.Error().Err(err).Msg("failed to marshal filtered widget")
+			h.logger.Error().Err(err).Msg("failed to marshal filtered snapshot")
 			continue
 		}
 
 		select {
 		case client.send <- data:
 		default:
-			// Client's send buffer is full, close and remove it
 			close(client.send)
 			delete(h.clients, client)
 			h.logger.Warn().

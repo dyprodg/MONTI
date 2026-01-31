@@ -85,11 +85,26 @@ class AuthService {
     return user !== null && !user.expired
   }
 
+  // Decode the payload of a JWT without verification (we only need claims, the
+  // backend verifies the signature). This lets us read realm_access from the
+  // access token, which Keycloak always populates — unlike the ID token.
+  private decodeJwtPayload(token: string): any {
+    try {
+      const parts = token.split('.')
+      if (parts.length !== 3) return null
+      const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+      return JSON.parse(atob(payload))
+    } catch {
+      return null
+    }
+  }
+
   // Map OIDC user to our User type
   private mapUser(oidcUser: OidcUser): User {
     const profile = oidcUser.profile
-    const groups = this.extractGroups(profile)
-    const role = this.extractRole(profile)
+    const accessClaims = this.decodeJwtPayload(oidcUser.access_token)
+    const groups = this.extractGroups(profile, accessClaims)
+    const role = this.extractRole(profile, accessClaims)
     const businessUnits = this.extractBusinessUnits(groups)
     const allowedLocations = this.computeAllowedLocations(role, businessUnits)
 
@@ -103,31 +118,34 @@ class AuthService {
     }
   }
 
-  // Extract role from token claims
-  private extractRole(profile: any): string {
-    // Check different possible locations for roles
-    // Keycloak puts roles in realm_access.roles
-    if (profile.realm_access?.roles) {
-      const roles = profile.realm_access.roles
-      if (roles.includes('admin')) return 'admin'
-      if (roles.includes('manager')) return 'manager'
-      if (roles.includes('viewer')) return 'viewer'
+  // Extract role from token claims — checks access token first (always has
+  // realm_access), then falls back to ID token profile.
+  private extractRole(profile: any, accessClaims: any): string {
+    // Check access token realm_access.roles (Keycloak always includes this)
+    const realmRoles = accessClaims?.realm_access?.roles || profile.realm_access?.roles
+    if (realmRoles && Array.isArray(realmRoles)) {
+      if (realmRoles.includes('admin')) return 'admin'
+      if (realmRoles.includes('supervisor')) return 'supervisor'
+      if (realmRoles.includes('manager')) return 'manager'
+      if (realmRoles.includes('viewer')) return 'viewer'
     }
 
     // AWS Cognito puts roles in cognito:groups
-    if (profile['cognito:groups']) {
-      const groups = profile['cognito:groups']
-      if (groups.includes('monti-admins')) return 'admin'
-      if (groups.includes('monti-managers')) return 'manager'
-      if (groups.includes('monti-viewers')) return 'viewer'
+    const cognitoGroups = profile['cognito:groups']
+    if (cognitoGroups) {
+      if (cognitoGroups.includes('monti-admins')) return 'admin'
+      if (cognitoGroups.includes('monti-supervisors')) return 'supervisor'
+      if (cognitoGroups.includes('monti-managers')) return 'manager'
+      if (cognitoGroups.includes('monti-viewers')) return 'viewer'
     }
 
     // Check custom groups attribute
-    if (profile['custom:groups']) {
-      const groups = profile['custom:groups']
-      if (groups.includes('monti-admins')) return 'admin'
-      if (groups.includes('monti-managers')) return 'manager'
-      if (groups.includes('monti-viewers')) return 'viewer'
+    const customGroups = profile['custom:groups']
+    if (customGroups) {
+      if (customGroups.includes('monti-admins')) return 'admin'
+      if (customGroups.includes('monti-supervisors')) return 'supervisor'
+      if (customGroups.includes('monti-managers')) return 'manager'
+      if (customGroups.includes('monti-viewers')) return 'viewer'
     }
 
     // Default to viewer
@@ -135,8 +153,8 @@ class AuthService {
   }
 
   // Extract groups from token claims
-  private extractGroups(profile: any): string[] {
-    return profile.groups || profile['cognito:groups'] || profile['custom:groups'] || []
+  private extractGroups(profile: any, accessClaims: any): string[] {
+    return accessClaims?.groups || profile.groups || profile['cognito:groups'] || profile['custom:groups'] || []
   }
 
   // Extract business units from groups

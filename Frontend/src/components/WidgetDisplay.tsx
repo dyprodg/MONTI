@@ -1,4 +1,5 @@
 import { Widget, AgentState, AgentInfo } from '../types'
+import { AgentGrid } from './AgentGrid'
 import { useTheme } from '../contexts/ThemeContext'
 
 interface WidgetDisplayProps {
@@ -6,6 +7,7 @@ interface WidgetDisplayProps {
   onAgentClick: (agent: AgentInfo) => void
   selectedState: AgentState | null
   onStateFilter: (state: AgentState) => void
+  showOffline?: boolean
 }
 
 const STATE_COLORS: Record<AgentState, string> = {
@@ -38,26 +40,7 @@ const STATE_LABELS: Record<AgentState, string> = {
   conference: 'Conference',
 }
 
-// Format duration in seconds to readable format
-const formatDuration = (stateStart: string): string => {
-  const start = new Date(stateStart)
-  const now = new Date()
-  const durationSeconds = Math.floor((now.getTime() - start.getTime()) / 1000)
-
-  if (durationSeconds < 60) {
-    return `${durationSeconds}s`
-  } else if (durationSeconds < 3600) {
-    const minutes = Math.floor(durationSeconds / 60)
-    const seconds = durationSeconds % 60
-    return `${minutes}m ${seconds}s`
-  } else {
-    const hours = Math.floor(durationSeconds / 3600)
-    const minutes = Math.floor((durationSeconds % 3600) / 60)
-    return `${hours}h ${minutes}m`
-  }
-}
-
-export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilter }: WidgetDisplayProps) => {
+export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilter, showOffline = true }: WidgetDisplayProps) => {
   const { colors } = useTheme()
   const title =
     widget.type === 'global_overview'
@@ -65,14 +48,8 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
       : `${widget.department?.charAt(0).toUpperCase()}${widget.department?.slice(1)} Department`
 
   const agents = widget.agents || []
-
-  // Sort agents by state, then by agent ID
-  const sortedAgents = [...agents].sort((a, b) => {
-    if (a.state !== b.state) {
-      return a.state.localeCompare(b.state)
-    }
-    return a.agentId.localeCompare(b.agentId)
-  })
+  const activeCount = agents.filter((a) => a.state !== 'offline').length
+  const totalCount = agents.length
 
   const sortedStates = Object.entries(widget.summary.stateBreakdown)
     .filter(([_, count]) => count > 0)
@@ -89,6 +66,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
         flexDirection: 'column',
         height: '100%',
         minHeight: 0,
+        minWidth: 0,
         overflow: 'hidden',
       }}
     >
@@ -110,7 +88,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
             color: colors.textSecondary,
           }}
         >
-          {widget.summary.totalAgents} agents
+          {!showOffline ? `${activeCount} active / ${totalCount} total` : `${totalCount} agents`}
         </div>
       </div>
 
@@ -162,170 +140,8 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
         ))}
       </div>
 
-      {/* Agent List */}
-      {agents.length > 0 ? (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-            border: `1px solid ${colors.border}`,
-            borderRadius: '4px',
-          }}
-        >
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '9px',
-            }}
-          >
-            <thead>
-              <tr
-                style={{
-                  backgroundColor: colors.surfaceHover,
-                  borderBottom: `1px solid ${colors.border}`,
-                  position: 'sticky',
-                  top: 0,
-                }}
-              >
-                <th
-                  style={{
-                    padding: '4px 6px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: colors.text,
-                    fontSize: '8px',
-                  }}
-                >
-                  ID
-                </th>
-                <th
-                  style={{
-                    padding: '4px 6px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: colors.text,
-                    fontSize: '8px',
-                  }}
-                >
-                  Status
-                </th>
-                <th
-                  style={{
-                    padding: '4px 6px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: colors.text,
-                    fontSize: '8px',
-                  }}
-                >
-                  Duration
-                </th>
-                <th
-                  style={{
-                    padding: '4px 6px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: colors.text,
-                    fontSize: '8px',
-                  }}
-                >
-                  City
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedAgents.map((agent) => (
-                <tr
-                  key={agent.agentId}
-                  onClick={() => onAgentClick(agent)}
-                  style={{
-                    borderBottom: `1px solid ${colors.border}`,
-                    cursor: 'pointer',
-                    transition: 'background-color 0.15s',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = colors.surfaceHover)}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <td
-                    style={{
-                      padding: '3px 6px',
-                      color: colors.text,
-                      fontWeight: '500',
-                      fontSize: '9px',
-                    }}
-                  >
-                    {agent.agentId}
-                  </td>
-                  <td style={{ padding: '3px 6px' }}>
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                        padding: '1px 4px',
-                        borderRadius: '3px',
-                        backgroundColor:
-                          STATE_COLORS[agent.state] + '20',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '4px',
-                          height: '4px',
-                          borderRadius: '50%',
-                          backgroundColor: STATE_COLORS[agent.state],
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: '8px',
-                          fontWeight: '500',
-                          color: colors.text,
-                        }}
-                      >
-                        {STATE_LABELS[agent.state]}
-                      </span>
-                    </div>
-                  </td>
-                  <td
-                    style={{
-                      padding: '3px 6px',
-                      color: colors.textSecondary,
-                      fontFamily: 'monospace',
-                      fontSize: '8px',
-                    }}
-                  >
-                    {formatDuration(agent.stateStart)}
-                  </td>
-                  <td
-                    style={{
-                      padding: '3px 6px',
-                      color: colors.textSecondary,
-                      fontSize: '8px',
-                    }}
-                  >
-                    {agent.location.charAt(0).toUpperCase() +
-                      agent.location.slice(1)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '16px',
-            color: colors.textSecondary,
-            fontSize: '11px',
-          }}
-        >
-          No agents in this department
-        </div>
-      )}
+      {/* Agent List — scrollable table with KPI columns */}
+      <AgentGrid agents={agents} onAgentClick={onAgentClick} showOffline={showOffline} />
     </div>
   )
 }
