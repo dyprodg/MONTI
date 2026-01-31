@@ -208,6 +208,9 @@ export interface CallConfig {
   departments: Record<string, { callsPerMin: number }>
 }
 
+// Playback mode for snapshot time machine
+export type PlaybackMode = 'live' | 'paused' | 'scrubbing'
+
 // Agent Daily Stats - aggregated daily stats for history
 export interface AgentDailyStats {
   agentId: string

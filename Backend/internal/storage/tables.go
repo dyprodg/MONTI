@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,6 +44,11 @@ func CreateTablesIfNotExist(ctx context.Context, client *dynamodb.Client, config
 			BillingMode: dbtypes.BillingModePayPerRequest,
 		})
 		if err != nil {
+			var riue *dbtypes.ResourceInUseException
+			if errors.As(err, &riue) {
+				logger.Info().Str("table", table.name).Msg("table already exists (race)")
+				continue
+			}
 			return fmt.Errorf("failed to create table %s: %w", table.name, err)
 		}
 		logger.Info().Str("table", table.name).Msg("table created")

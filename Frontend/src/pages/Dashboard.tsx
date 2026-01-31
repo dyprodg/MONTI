@@ -1,5 +1,7 @@
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useSnapshotBuffer } from '../hooks/useSnapshotBuffer'
 import { ConnectionStatus } from '../components/ConnectionStatus'
+import { TimelineControls } from '../components/TimelineControls'
 import { VQDisplay } from '../components/VQDisplay'
 import { AgentGrid } from '../components/AgentGrid'
 import { AgentModal } from '../components/AgentModal'
@@ -101,7 +103,25 @@ export const Dashboard = () => {
   const { user, logout, isAuthenticated } = useAuth()
   const { colors } = useTheme()
   const { data, connectionState, error } = useWebSocket(WS_URL, { enabled: isAuthenticated })
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+
+  const incomingSnapshot = useMemo(() => {
+    if (!data) return null
+    const message = data as any
+    return message.type === 'snapshot' ? (message as Snapshot) : null
+  }, [data])
+
+  const {
+    displaySnapshot,
+    mode: playbackMode,
+    bufferLength,
+    cursorIndex,
+    displayTimestamp,
+    latestTimestamp,
+    pause,
+    goLive,
+    scrubTo,
+  } = useSnapshotBuffer(incomingSnapshot)
+
   const [selectedCity, setSelectedCity] = useState<Location | 'all'>('all')
   const [visibleError, setVisibleError] = useState<string | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
@@ -119,15 +139,6 @@ export const Dashboard = () => {
   const handleCloseModal = () => {
     setSelectedAgent(null)
   }
-
-  // Handle incoming WebSocket messages — single snapshot per tick
-  useEffect(() => {
-    if (!data) return
-    const message = data as any
-    if (message.type === 'snapshot') {
-      setSnapshot(message as Snapshot)
-    }
-  }, [data])
 
   // Auto-dismiss errors after 5 seconds
   useEffect(() => {
@@ -149,11 +160,11 @@ export const Dashboard = () => {
 
   // Filter agents per department by city, state, and search query
   const filteredDepts = useMemo(() => {
-    if (!snapshot) return {} as Record<Department, { agents: AgentInfo[]; queues: VQSnapshot[] }>
+    if (!displaySnapshot) return {} as Record<Department, { agents: AgentInfo[]; queues: VQSnapshot[] }>
 
     const result: Record<string, { agents: AgentInfo[]; queues: VQSnapshot[] }> = {}
     for (const dept of allDepartments) {
-      const data = snapshot.departments[dept]
+      const data = displaySnapshot.departments[dept]
       if (!data) {
         result[dept] = { agents: [], queues: [] }
         continue
@@ -175,9 +186,9 @@ export const Dashboard = () => {
       result[dept] = { agents, queues: data.queues || [] }
     }
     return result as Record<Department, { agents: AgentInfo[]; queues: VQSnapshot[] }>
-  }, [snapshot, selectedCity, selectedState, searchQuery])
+  }, [displaySnapshot, selectedCity, selectedState, searchQuery])
 
-  const hasData = snapshot !== null
+  const hasData = displaySnapshot !== null
 
   return (
     <div
@@ -699,6 +710,18 @@ export const Dashboard = () => {
               </div>
             )}
 
+            {/* Timeline Controls */}
+            <TimelineControls
+              mode={playbackMode}
+              bufferLength={bufferLength}
+              cursorIndex={cursorIndex}
+              displayTimestamp={displayTimestamp}
+              latestTimestamp={latestTimestamp}
+              onPause={pause}
+              onGoLive={goLive}
+              onScrub={scrubTo}
+            />
+
             {/* Stats Footer */}
             <div
               style={{
@@ -716,7 +739,7 @@ export const Dashboard = () => {
                   const totalCount = allAgents.length
                   return `${activeCount} active${offlineCount > 0 ? ` • Offline: ${offlineCount}` : ''} • ${totalCount} total`
                 })()}
-                {' • Real-time'}
+                {playbackMode === 'live' ? ' • Real-time' : ' • Historical'}
                 {selectedCity !== 'all' && ` • ${selectedCity.charAt(0).toUpperCase() + selectedCity.slice(1)}`}
                 {selectedState && ` • ${selectedState.replace('_', ' ')}`}
               </p>

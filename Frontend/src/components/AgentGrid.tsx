@@ -57,6 +57,33 @@ const formatDuration = (stateStart: string): string => {
   return `${hours}h ${minutes}m`
 }
 
+// Duration ceilings (seconds) per state — only these states get colored
+const DURATION_CEILINGS: Partial<Record<AgentState, number>> = {
+  after_call_work: 240,  // 4 minutes
+  available: 600,        // 10 minutes
+  break: 420,            // 7 minutes
+  on_call: 3600,         // 1 hour
+}
+
+// Returns a background color from green→red based on duration progress, or undefined
+const getDurationBg = (state: AgentState, stateStart: string): string | undefined => {
+  const ceiling = DURATION_CEILINGS[state]
+  if (ceiling == null) return undefined
+
+  const secs = Math.floor((Date.now() - new Date(stateStart).getTime()) / 1000)
+  if (secs < 1) return undefined
+
+  // 0 = just started, 1 = at/past ceiling
+  const t = Math.min(1, secs / ceiling)
+
+  // Hue: 120 (green) → 0 (red)
+  const hue = Math.round(120 * (1 - t))
+  // Alpha: 0.15 at start → 0.65 at ceiling
+  const alpha = 0.15 + t * 0.50
+
+  return `hsla(${hue}, 85%, 45%, ${alpha.toFixed(2)})`
+}
+
 const formatSeconds = (seconds: number): string => {
   if (seconds <= 0) return '-'
   if (seconds < 60) return `${Math.round(seconds)}s`
@@ -471,19 +498,22 @@ export const AgentGrid = ({ agents, onAgentClick, compact = false, showOffline =
 
                     const isIdCol = col.key === 'agentId'
                     const isMonospace = col.format === 'duration' || col.format === 'time'
+                    const durBg = col.format === 'duration' ? getDurationBg(agent.state, agent.stateStart) : undefined
 
                     return (
                       <td
                         key={col.key}
                         style={{
                           padding: cellPad,
-                          color: isIdCol ? colors.text : colors.textSecondary,
-                          fontWeight: isIdCol ? '500' : '400',
+                          color: durBg ? '#fff' : isIdCol ? colors.text : colors.textSecondary,
+                          fontWeight: isIdCol || durBg ? '500' : '400',
                           fontFamily: isMonospace ? 'monospace' : 'inherit',
                           fontSize,
                           whiteSpace: 'nowrap',
                           minWidth: `${col.width}px`,
                           ...stickyStyle(col, rowBg),
+                          backgroundColor: durBg || (col.frozen ? rowBg : undefined),
+                          borderRadius: durBg ? '3px' : undefined,
                         }}
                       >
                         {formatCellValue(agent, col)}
