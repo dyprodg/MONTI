@@ -122,6 +122,17 @@ func main() {
 	aggregatorService.SetCallQueue(callQueueMgr)
 	go aggregatorService.Start(ctx)
 
+	// Initialize JWKS for production token verification
+	skipAuth := os.Getenv("SKIP_AUTH")
+	if skipAuth != "true" {
+		issuer := os.Getenv("OIDC_ISSUER")
+		if issuer != "" {
+			if err := auth.InitJWKS(issuer, 20); err != nil {
+				log.Fatal().Err(err).Msg("failed to initialize JWKS (Keycloak not reachable)")
+			}
+		}
+	}
+
 	// Create router
 	r := chi.NewRouter()
 
