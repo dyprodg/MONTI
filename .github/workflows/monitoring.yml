@@ -1,0 +1,78 @@
+name: Monitoring & Caddy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - monitoring/**
+      - Caddyfile
+      - docker-compose.prod.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - monitoring/**
+      - Caddyfile
+      - docker-compose.prod.yml
+
+jobs:
+  validate:
+    name: Validate Configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm -v ${{ github.workspace }}/monitoring/prometheus:/etc/prometheus \
+            prom/prometheus:latest promtool check config /etc/prometheus/prometheus.yml
+
+      - name: Validate docker-compose syntax
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+  deploy:
+    name: Deploy Configs
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy configs to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ec2-user/monti
+
+            # Create directories if needed
+            mkdir -p monitoring/prometheus
+            mkdir -p monitoring/grafana/provisioning/datasources
+            mkdir -p monitoring/grafana/provisioning/dashboards
+            mkdir -p monitoring/grafana/dashboards
+
+      - name: Copy config files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          source: "monitoring/,Caddyfile,docker-compose.prod.yml"
+          target: /home/ec2-user/monti
+
+      - name: Restart affected services
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ec2-user/monti
+
+            # Rename prod compose to default
+            cp docker-compose.prod.yml docker-compose.yml
+
+            # Restart monitoring and caddy services
+            docker compose up -d prometheus grafana caddy cadvisor
+            echo "Monitoring and Caddy services restarted"
