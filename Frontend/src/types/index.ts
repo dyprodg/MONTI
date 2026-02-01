@@ -208,6 +208,12 @@ export interface CallConfig {
   departments: Record<string, { callsPerMin: number }>
 }
 
+// Snapshot history message sent on WebSocket connect
+export interface SnapshotHistory {
+  type: 'snapshot_history'
+  snapshots: Snapshot[]
+}
+
 // Playback mode for snapshot time machine
 export type PlaybackMode = 'live' | 'paused' | 'scrubbing'
 

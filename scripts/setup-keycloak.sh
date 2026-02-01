@@ -74,12 +74,14 @@ kc_api POST "/monti/clients" '{
   "redirectUris": [
     "http://localhost:5173/*",
     "http://localhost:3000/*",
-    "https://*.monti.app/*"
+    "https://*.monti.app/*",
+    "https://monti.dennisdiepolder.com/*"
   ],
   "webOrigins": [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://*.monti.app"
+    "https://*.monti.app",
+    "https://monti.dennisdiepolder.com"
   ],
   "attributes": {
     "pkce.code.challenge.method": "S256"

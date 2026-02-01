@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { Snapshot, PlaybackMode } from '../types'
 
-const DEFAULT_MAX_SIZE = 120
+const DEFAULT_MAX_SIZE = 300
 
 export function useSnapshotBuffer(incoming: Snapshot | null, maxSize = DEFAULT_MAX_SIZE) {
   const bufferRef = useRef<Snapshot[]>([])
@@ -30,6 +30,27 @@ export function useSnapshotBuffer(incoming: Snapshot | null, maxSize = DEFAULT_M
       setRenderTick((t) => t + 1)
     }
   }, [incoming, maxSize, mode])
+
+  // Seed buffer with history (bulk insert)
+  const seedHistory = useCallback((snapshots: Snapshot[]) => {
+    const buf = bufferRef.current
+    // Only seed if buffer is empty or very small (avoid re-seeding)
+    if (buf.length > 5) return
+
+    // Prepend history before any existing snapshots
+    const combined = [...snapshots, ...buf]
+    // Trim to maxSize keeping the most recent
+    const trimmed = combined.length > maxSize
+      ? combined.slice(combined.length - maxSize)
+      : combined
+
+    bufferRef.current = trimmed
+
+    if (mode === 'live') {
+      setCursorIndex(trimmed.length > 0 ? trimmed.length - 1 : 0)
+      setRenderTick((t) => t + 1)
+    }
+  }, [maxSize, mode])
 
   const pause = useCallback(() => {
     setMode('paused')
@@ -71,6 +92,7 @@ export function useSnapshotBuffer(incoming: Snapshot | null, maxSize = DEFAULT_M
     pause,
     goLive,
     scrubTo,
+    seedHistory,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _renderTick: renderTick,
   }

@@ -25,6 +25,16 @@ services:
       - monti-network
     restart: unless-stopped
 
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: monti-dynamodb
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+    volumes:
+      - dynamodb-data:/data
+    networks:
+      - monti-network
+    restart: unless-stopped
+
   backend:
     image: ${ECR_REGISTRY}/monti-backend:latest
     container_name: monti-backend
@@ -41,10 +51,14 @@ services:
       - OIDC_CLIENT_ID=monti-app
       - OIDC_AUDIENCE=monti-app
       - SKIP_AUTH=false
+      - AGENTSIM_URL=http://agentsim:8081
+      - DYNAMO_MODE=local
+      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
     networks:
       - monti-network
     depends_on:
       - keycloak
+      - dynamodb-local
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -159,3 +173,4 @@ volumes:
   keycloak-data:
   caddy-data:
   caddy-config:
+  dynamodb-data:

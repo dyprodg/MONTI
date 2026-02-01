@@ -9,8 +9,8 @@ import { AdminControlPanel } from '../components/AdminControlPanel'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { Snapshot, Location, AgentInfo, AgentState, Department, VQSnapshot } from '../types'
-import { useState, useEffect, useMemo } from 'react'
+import { Snapshot, SnapshotHistory, Location, AgentInfo, AgentState, Department, VQSnapshot } from '../types'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws'
 
@@ -120,7 +120,24 @@ export const Dashboard = () => {
     pause,
     goLive,
     scrubTo,
+    seedHistory,
   } = useSnapshotBuffer(incomingSnapshot)
+
+  // Handle snapshot_history messages from the server
+  const handleSnapshotHistory = useCallback(() => {
+    if (!data) return
+    const message = data as any
+    if (message.type === 'snapshot_history') {
+      const historyMsg = message as SnapshotHistory
+      if (historyMsg.snapshots && historyMsg.snapshots.length > 0) {
+        seedHistory(historyMsg.snapshots)
+      }
+    }
+  }, [data, seedHistory])
+
+  useEffect(() => {
+    handleSnapshotHistory()
+  }, [handleSnapshotHistory])
 
   const [selectedCity, setSelectedCity] = useState<Location | 'all'>('all')
   const [visibleError, setVisibleError] = useState<string | null>(null)
