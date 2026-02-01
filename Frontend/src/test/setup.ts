@@ -32,7 +32,7 @@ class MockWebSocket {
     }, 0)
   }
 
-  send(_data: string) {
+  send() {
     if (this.readyState !== MockWebSocket.OPEN) {
       throw new Error('WebSocket is not open')
     }
@@ -46,7 +46,7 @@ class MockWebSocket {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error MockWebSocket is a partial implementation for tests
 global.WebSocket = MockWebSocket
 
 // Extend expect with custom matchers
