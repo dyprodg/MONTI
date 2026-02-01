@@ -314,8 +314,210 @@
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
       "id": 200,
       "panels": [],
-      "title": "Container Resources (CPU / Memory)",
+      "title": "EC2 Host & Container Resources",
       "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 6 },
+      "id": 210,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\"}[1m])) * 100", "legendFormat": "CPU", "refId": "A" }
+      ],
+      "title": "EC2 Total CPU Usage",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 6 },
+      "id": 211,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "scalar(container_memory_usage_bytes{id=\"/\"}) / scalar(machine_memory_bytes) * 100", "legendFormat": "Memory", "refId": "A" }
+      ],
+      "title": "EC2 Total Memory Usage",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 3, "w": 6, "x": 12, "y": 6 },
+      "id": 212,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "container_memory_usage_bytes{id=\"/\"}", "legendFormat": "Used", "refId": "A" }
+      ],
+      "title": "Memory Used",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 3, "w": 6, "x": 18, "y": 6 },
+      "id": 213,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "machine_memory_bytes", "legendFormat": "Total", "refId": "A" }
+      ],
+      "title": "Memory Total",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 3, "w": 6, "x": 12, "y": 9 },
+      "id": 214,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "machine_cpu_cores", "legendFormat": "Cores", "refId": "A" }
+      ],
+      "title": "CPU Cores",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 3, "w": 6, "x": 18, "y": 9 },
+      "id": 215,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "count(time() - container_last_seen{name=~\"monti-.+\",name!=\"monti-dynamodb\"} < 60)", "legendFormat": "Running", "refId": "A" }
+      ],
+      "title": "Containers Running",
+      "type": "stat"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
@@ -348,7 +550,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "id": 201,
       "options": {
         "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -356,7 +558,7 @@
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        { "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\"monti-.+\"}[1m])) by (name) * 100", "legendFormat": "{{name}}", "refId": "A" }
+        { "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"monti-.+\",name!=\"monti-dynamodb\"}[1m])) * 100", "legendFormat": "{{name}}", "refId": "A" }
       ],
       "title": "CPU Usage per Container",
       "type": "timeseries"
@@ -392,7 +594,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "id": 202,
       "options": {
         "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -400,14 +602,14 @@
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        { "expr": "container_memory_usage_bytes{name=~\"monti-.+\"}", "legendFormat": "{{name}}", "refId": "A" }
+        { "expr": "sum by (name) (container_memory_usage_bytes{name=~\"monti-.+\",name!=\"monti-dynamodb\"})", "legendFormat": "{{name}}", "refId": "A" }
       ],
       "title": "Memory Usage per Container",
       "type": "timeseries"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
       "id": 300,
       "panels": [],
       "title": "Backend Performance (The Selling Point)",
@@ -443,7 +645,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
       "id": 301,
       "options": {
         "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -489,7 +691,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
       "id": 302,
       "options": {
         "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -532,7 +734,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
       "id": 303,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -577,7 +779,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
       "id": 304,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -594,7 +796,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
       "id": 101,
       "panels": [],
       "title": "Agent Distribution",
@@ -630,7 +832,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 38 },
       "id": 10,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -679,7 +881,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 38 },
       "id": 11,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -725,7 +927,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 38 },
       "id": 12,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -744,7 +946,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
       "id": 103,
       "panels": [],
       "title": "Errors & Health",
@@ -780,7 +982,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 47 },
       "id": 30,
       "options": {
         "legend": { "calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true },
@@ -797,7 +999,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "5s",
+  "refresh": "10s",
   "schemaVersion": 38,
   "tags": ["monti", "call-center"],
   "templating": { "list": [] },
@@ -806,6 +1008,6 @@
   "timezone": "browser",
   "title": "MONTI - Call Center Monitoring",
   "uid": "monti-overview",
-  "version": 1,
+  "version": 5,
   "weekStart": ""
 }

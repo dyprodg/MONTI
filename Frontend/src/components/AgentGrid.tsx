@@ -206,7 +206,7 @@ const formatCellValue = (agent: AgentInfo, col: ColumnDef): string => {
 
 export const AgentGrid = ({ agents, onAgentClick, compact = false, showOffline = true }: AgentGridProps) => {
   const { colors } = useTheme()
-  const [sorts, setSorts] = useState<SortLevel[]>([{ field: 'agentId', dir: 'asc' }])
+  const [sorts, setSorts] = useState<SortLevel[]>([{ field: 'state', dir: 'asc' }, { field: 'duration', dir: 'desc' }])
   const [filterState, setFilterState] = useState<string>('')
   const [filterCity, setFilterCity] = useState<string>('')
 
@@ -230,7 +230,7 @@ export const AgentGrid = ({ agents, onAgentClick, compact = false, showOffline =
       }
       // Was desc — remove it
       const next = prev.filter((_, i) => i !== idx)
-      return next.length === 0 ? [{ field: 'agentId', dir: 'asc' }] : next
+      return next.length === 0 ? [{ field: 'state', dir: 'asc' }, { field: 'duration', dir: 'desc' }] : next
     })
   }
 
