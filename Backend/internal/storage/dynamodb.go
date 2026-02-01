@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,6 +37,15 @@ func NewDynamoDBStore(ctx context.Context, cfg DynamoConfig, logger zerolog.Logg
 			Region:       cfg.Region,
 			BaseEndpoint: aws.String(cfg.Endpoint),
 			Credentials:  credentials.NewStaticCredentialsProvider("local", "local", ""),
+			HTTPClient: &http.Client{
+				Timeout: 5 * time.Second,
+				Transport: &http.Transport{
+					DialContext: (&net.Dialer{
+						Timeout: 2 * time.Second,
+					}).DialContext,
+					ResponseHeaderTimeout: 5 * time.Second,
+				},
+			},
 		})
 	} else {
 		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
