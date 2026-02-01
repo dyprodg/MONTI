@@ -205,7 +205,7 @@ const formatCellValue = (agent: AgentInfo, col: ColumnDef): string => {
 
 
 export const AgentGrid = ({ agents, onAgentClick, compact = false, showOffline = true }: AgentGridProps) => {
-  const { colors } = useTheme()
+  const { colors, theme } = useTheme()
   const [sorts, setSorts] = useState<SortLevel[]>([{ field: 'state', dir: 'asc' }, { field: 'duration', dir: 'desc' }])
   const [filterState, setFilterState] = useState<string>('')
   const [filterCity, setFilterCity] = useState<string>('')
@@ -505,7 +505,7 @@ export const AgentGrid = ({ agents, onAgentClick, compact = false, showOffline =
                         key={col.key}
                         style={{
                           padding: cellPad,
-                          color: durBg ? '#fff' : isIdCol ? colors.text : colors.textSecondary,
+                          color: durBg ? (theme === 'dark' ? '#fff' : '#000') : isIdCol ? colors.text : colors.textSecondary,
                           fontWeight: isIdCol || durBg ? '500' : '400',
                           fontFamily: isMonospace ? 'monospace' : 'inherit',
                           fontSize,
