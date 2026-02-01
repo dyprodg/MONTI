@@ -66,5 +66,8 @@ jobs:
             cd /home/ec2-user/monti
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
             docker compose pull agentsim
-            docker compose up -d agentsim
+            docker compose up -d
             docker image prune -f
+            sleep 10
+            echo "=== Container Status ==="
+            docker compose ps

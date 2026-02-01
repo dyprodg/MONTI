@@ -61,7 +61,7 @@ jobs:
           source: "monitoring/,Caddyfile,docker-compose.prod.yml"
           target: /home/ec2-user/monti
 
-      - name: Restart affected services
+      - name: Restart all services
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -70,9 +70,11 @@ jobs:
           script: |
             cd /home/ec2-user/monti
 
-            # Rename prod compose to default
+            # Use prod compose as default
             cp docker-compose.prod.yml docker-compose.yml
 
-            # Restart monitoring and caddy services
-            docker compose up -d prometheus grafana caddy cadvisor
-            echo "Monitoring and Caddy services restarted"
+            # Bring up all services
+            docker compose up -d
+            sleep 10
+            echo "=== Container Status ==="
+            docker compose ps
