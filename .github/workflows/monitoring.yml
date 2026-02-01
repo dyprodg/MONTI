@@ -23,8 +23,8 @@ jobs:
 
       - name: Validate Prometheus config
         run: |
-          docker run --rm -v ${{ github.workspace }}/monitoring/prometheus:/etc/prometheus \
-            prom/prometheus:latest promtool check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint promtool -v ${{ github.workspace }}/monitoring/prometheus:/etc/prometheus \
+            prom/prometheus:latest check config /etc/prometheus/prometheus.yml
 
       - name: Validate docker-compose syntax
         run: docker compose -f docker-compose.prod.yml config --quiet
