@@ -88,6 +88,7 @@ class AuthService {
   // Decode the payload of a JWT without verification (we only need claims, the
   // backend verifies the signature). This lets us read realm_access from the
   // access token, which Keycloak always populates — unlike the ID token.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private decodeJwtPayload(token: string): any {
     try {
       const parts = token.split('.')
@@ -120,6 +121,7 @@ class AuthService {
 
   // Extract role from token claims — checks access token first (always has
   // realm_access), then falls back to ID token profile.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private extractRole(profile: any, accessClaims: any): string {
     // Check access token realm_access.roles (Keycloak always includes this)
     const realmRoles = accessClaims?.realm_access?.roles || profile.realm_access?.roles
@@ -153,6 +155,7 @@ class AuthService {
   }
 
   // Extract groups from token claims
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private extractGroups(profile: any, accessClaims: any): string[] {
     return accessClaims?.groups || profile.groups || profile['cognito:groups'] || profile['custom:groups'] || []
   }

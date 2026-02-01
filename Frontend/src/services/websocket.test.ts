@@ -48,7 +48,8 @@ describe('WebSocketService', () => {
 
       // Simulate incoming message after connection
       setTimeout(() => {
-        const mockWs = (ws as any).ws
+        const mockWs = // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ws as any).ws
         if (mockWs && mockWs.onmessage) {
           mockWs.onmessage(
             new MessageEvent('message', { data: JSON.stringify(testData) })
@@ -80,7 +81,8 @@ describe('WebSocketService', () => {
 
       // Simulate error after connection
       setTimeout(() => {
-        const mockWs = (ws as any).ws
+        const mockWs = // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ws as any).ws
         if (mockWs && mockWs.onerror) {
           mockWs.onerror(new Event('error'))
         }
@@ -97,6 +99,7 @@ describe('WebSocketService', () => {
     ws.connect()
 
     // Handler should not be called after unsubscribe
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((ws as any).messageHandlers.has(handler)).toBe(false)
   })
 })
