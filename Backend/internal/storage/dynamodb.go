@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -49,10 +50,21 @@ func NewDynamoDBStore(ctx context.Context, cfg DynamoConfig, logger zerolog.Logg
 		logger: logger,
 	}
 
-	// Create tables in local mode
+	// Create tables in local mode (with retries for container startup ordering)
 	if cfg.Mode == DynamoModeLocal {
-		if err := CreateTablesIfNotExist(ctx, client, cfg, logger); err != nil {
-			return nil, err
+		var lastErr error
+		for attempt := 1; attempt <= 10; attempt++ {
+			if err := CreateTablesIfNotExist(ctx, client, cfg, logger); err != nil {
+				lastErr = err
+				logger.Warn().Err(err).Int("attempt", attempt).Msg("DynamoDB Local not ready, retrying...")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			lastErr = nil
+			break
+		}
+		if lastErr != nil {
+			return nil, lastErr
 		}
 	}
 
