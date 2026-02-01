@@ -21,9 +21,16 @@ services:
       - KC_HTTP_RELATIVE_PATH=/
       - KC_PROXY=edge
       - KC_HTTP_ENABLED=true
+      - KC_HEALTH_ENABLED=true
     networks:
       - monti-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8180 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && timeout 2 cat <&3 | grep -q '200 OK'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   backend:
     image: ${ECR_REGISTRY}/monti-backend:latest
@@ -46,14 +53,15 @@ services:
     networks:
       - monti-network
     depends_on:
-      - keycloak
+      keycloak:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   agentsim:
     image: ${ECR_REGISTRY}/monti-agentsim:latest

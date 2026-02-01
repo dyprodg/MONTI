@@ -39,18 +39,27 @@ type JWKSManager struct {
 
 var (
 	jwksManager *JWKSManager
-	jwksOnce    sync.Once
 )
 
-// InitJWKS initializes the JWKS manager for token verification
-// Call this on server startup in production mode
-func InitJWKS(issuerURL string) error {
-	var initErr error
-	jwksOnce.Do(func() {
-		jwksManager = &JWKSManager{issuerURL: issuerURL}
-		initErr = jwksManager.refresh()
-	})
-	return initErr
+// InitJWKS initializes the JWKS manager for token verification.
+// Retries up to maxAttempts times with a delay between attempts to handle
+// cases where Keycloak is still starting up.
+func InitJWKS(issuerURL string, maxAttempts int) error {
+	jwksManager = &JWKSManager{issuerURL: issuerURL}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := jwksManager.refresh(); err != nil {
+			lastErr = err
+			log.Printf("[Auth] JWKS fetch attempt %d/%d failed: %v", attempt, maxAttempts, err)
+			if attempt < maxAttempts {
+				time.Sleep(3 * time.Second)
+			}
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to initialize JWKS after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // refresh fetches the JWKS from the OIDC provider
@@ -237,20 +246,20 @@ func validateToken(tokenString string) (*Claims, error) {
 
 // parseAndVerifyToken verifies the JWT signature using JWKS
 func parseAndVerifyToken(tokenString string) (*jwt.Token, error) {
-	// Ensure JWKS is initialized
 	if jwksManager == nil {
-		issuer := os.Getenv("OIDC_ISSUER")
-		if issuer == "" {
-			return nil, fmt.Errorf("OIDC_ISSUER not configured for production JWT verification")
-		}
-		if err := InitJWKS(issuer); err != nil {
-			return nil, fmt.Errorf("failed to initialize JWKS: %w", err)
-		}
+		return nil, fmt.Errorf("JWKS not initialized - call InitJWKS on startup")
 	}
 
 	keyfunc := jwksManager.getKeyfunc()
 	if keyfunc == nil {
-		return nil, fmt.Errorf("JWKS not available")
+		// Try one refresh in case it recovered
+		if err := jwksManager.refresh(); err != nil {
+			return nil, fmt.Errorf("JWKS not available and refresh failed: %w", err)
+		}
+		keyfunc = jwksManager.getKeyfunc()
+		if keyfunc == nil {
+			return nil, fmt.Errorf("JWKS not available after refresh")
+		}
 	}
 
 	// Parse and verify the token
