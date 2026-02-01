@@ -6,11 +6,17 @@ on:
     branches: [main]
     paths:
       - Backend/**
+      - monitoring/**
+      - Caddyfile
+      - docker-compose.prod.yml
       - .github/workflows/backend.yml
   pull_request:
     branches: [main]
     paths:
       - Backend/**
+      - monitoring/**
+      - Caddyfile
+      - docker-compose.prod.yml
       - .github/workflows/backend.yml
 
 jobs:
@@ -61,6 +67,27 @@ jobs:
           docker push ${{ vars.ECR_REGISTRY }}/monti-backend:latest
           docker push ${{ vars.ECR_REGISTRY }}/monti-backend:${{ github.sha }}
 
+      - name: Prepare EC2 directories
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            mkdir -p /home/ec2-user/monti/monitoring/prometheus
+            mkdir -p /home/ec2-user/monti/monitoring/grafana/provisioning/datasources
+            mkdir -p /home/ec2-user/monti/monitoring/grafana/provisioning/dashboards
+            mkdir -p /home/ec2-user/monti/monitoring/grafana/dashboards
+
+      - name: Copy config files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          source: "monitoring/,Caddyfile,docker-compose.prod.yml"
+          target: /home/ec2-user/monti
+
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1
         with:
@@ -71,12 +98,15 @@ jobs:
           script: |
             cd /home/ec2-user/monti
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
+            cp docker-compose.prod.yml docker-compose.yml
             docker compose pull backend
-            docker compose stop -t 5 backend || true
+            docker compose down --timeout 10
             docker compose up -d
             docker image prune -f
-            sleep 10
+            sleep 30
             echo "=== Container Status ==="
             docker compose ps
             echo "=== Health Check ==="
-            curl -sf http://localhost:8080/health > /dev/null && echo "Backend healthy" || echo "WARNING: Backend health check failed"
+            curl -sf http://localhost:8080/health && echo "" || echo "WARNING: Backend health check failed"
+            echo "=== Backend Logs (last 30 lines) ==="
+            docker compose logs --tail 30 backend
