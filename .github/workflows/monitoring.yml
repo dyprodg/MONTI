@@ -80,6 +80,8 @@ jobs:
             # Stop and restart all services cleanly
             docker compose down --timeout 5
             docker compose up -d
-            sleep 15
+            sleep 20
             echo "=== Container Status ==="
             docker compose ps
+            echo "=== Backend Logs (last 50 lines) ==="
+            docker compose logs --tail 50 backend
