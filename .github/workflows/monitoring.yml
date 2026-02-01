@@ -1,18 +1,21 @@
 name: Monitoring & Caddy
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - monitoring/**
       - Caddyfile
       - docker-compose.prod.yml
+      - .github/workflows/monitoring.yml
   pull_request:
     branches: [main]
     paths:
       - monitoring/**
       - Caddyfile
       - docker-compose.prod.yml
+      - .github/workflows/monitoring.yml
 
 jobs:
   validate:
@@ -67,14 +70,16 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          command_timeout: 5m
           script: |
             cd /home/ec2-user/monti
 
             # Use prod compose as default
             cp docker-compose.prod.yml docker-compose.yml
 
-            # Bring up all services
+            # Stop and restart all services cleanly
+            docker compose down --timeout 5
             docker compose up -d
-            sleep 10
+            sleep 15
             echo "=== Container Status ==="
             docker compose ps
