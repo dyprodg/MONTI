@@ -34,6 +34,12 @@ services:
     networks:
       - monti-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo > /dev/tcp/localhost/8000 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   backend:
     image: ${ECR_REGISTRY}/monti-backend:latest
@@ -57,15 +63,17 @@ services:
     networks:
       - monti-network
     depends_on:
-      - keycloak
-      - dynamodb-local
+      keycloak:
+        condition: service_started
+      dynamodb-local:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 30s
 
   agentsim:
     image: ${ECR_REGISTRY}/monti-agentsim:latest
