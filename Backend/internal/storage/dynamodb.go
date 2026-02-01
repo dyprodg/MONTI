@@ -24,28 +24,24 @@ type DynamoDBStore struct {
 
 // NewDynamoDBStore creates a new DynamoDB store
 func NewDynamoDBStore(ctx context.Context, cfg DynamoConfig, logger zerolog.Logger) (*DynamoDBStore, error) {
-	var opts []func(*awsconfig.LoadOptions) error
-	opts = append(opts, awsconfig.WithRegion(cfg.Region))
+	var client *dynamodb.Client
 
 	if cfg.Mode == DynamoModeLocal {
-		opts = append(opts, awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("local", "local", ""),
-		))
-	}
-
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	var clientOpts []func(*dynamodb.Options)
-	if cfg.Mode == DynamoModeLocal {
-		clientOpts = append(clientOpts, func(o *dynamodb.Options) {
-			o.BaseEndpoint = aws.String(cfg.Endpoint)
+		// For local mode, build the client directly without LoadDefaultConfig.
+		// LoadDefaultConfig probes the EC2 IMDS endpoint which hangs on EC2
+		// instances when static credentials are intended.
+		client = dynamodb.New(dynamodb.Options{
+			Region:       cfg.Region,
+			BaseEndpoint: aws.String(cfg.Endpoint),
+			Credentials:  credentials.NewStaticCredentialsProvider("local", "local", ""),
 		})
+	} else {
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		}
+		client = dynamodb.NewFromConfig(awsCfg)
 	}
-
-	client := dynamodb.NewFromConfig(awsCfg, clientOpts...)
 
 	store := &DynamoDBStore{
 		client: client,
