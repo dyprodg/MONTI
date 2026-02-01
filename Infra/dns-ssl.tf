@@ -3,6 +3,7 @@
 locals {
   frontend_fqdn = "${var.frontend_subdomain}.${var.domain_name}"
   backend_fqdn  = "${var.backend_subdomain}.${var.domain_name}"
+  grafana_fqdn  = "monti-grafana.${var.domain_name}"
 }
 
 # Existing hosted zone
@@ -63,6 +64,15 @@ resource "aws_route53_record" "frontend" {
 resource "aws_route53_record" "backend" {
   zone_id = data.aws_route53_zone.main.zone_id
   name    = local.backend_fqdn
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.backend.public_ip]
+}
+
+# Grafana: A record to EC2 Elastic IP
+resource "aws_route53_record" "grafana" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = local.grafana_fqdn
   type    = "A"
   ttl     = 300
   records = [aws_eip.backend.public_ip]
