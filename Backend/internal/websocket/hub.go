@@ -9,6 +9,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const maxSnapshotHistory = 300
+
 // Hub maintains the set of active clients and broadcasts messages to the clients
 type Hub struct {
 	// Registered clients
@@ -25,6 +27,9 @@ type Hub struct {
 
 	// Mutex to protect clients map
 	mu sync.RWMutex
+
+	// Ring buffer of recent snapshots (max maxSnapshotHistory)
+	snapshotHistory []*types.Snapshot
 
 	// Logger
 	logger zerolog.Logger
@@ -56,6 +61,9 @@ func (h *Hub) Run() {
 				Str("client_id", client.id).
 				Int("total_clients", len(h.clients)).
 				Msg("client connected")
+
+			// Send snapshot history to newly connected client
+			h.sendSnapshotHistory(client)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -90,7 +98,8 @@ func (h *Hub) Run() {
 					h.broadcastRaw(message)
 					continue
 				}
-				h.broadcastSnapshot(&snapshot)
+				h.appendSnapshotHistory(&snapshot)
+			h.broadcastSnapshot(&snapshot)
 
 			default:
 				h.broadcastRaw(message)
@@ -127,6 +136,54 @@ func (h *Hub) broadcastRaw(message []byte) {
 				Str("client_id", client.id).
 				Msg("client send buffer full, closing connection")
 		}
+	}
+}
+
+// appendSnapshotHistory adds a snapshot to the ring buffer, evicting the oldest if full
+func (h *Hub) appendSnapshotHistory(snapshot *types.Snapshot) {
+	if len(h.snapshotHistory) >= maxSnapshotHistory {
+		// Evict oldest
+		h.snapshotHistory = h.snapshotHistory[1:]
+	}
+	h.snapshotHistory = append(h.snapshotHistory, snapshot)
+}
+
+// sendSnapshotHistory sends the buffered snapshot history to a newly connected client
+func (h *Hub) sendSnapshotHistory(client *Client) {
+	if len(h.snapshotHistory) == 0 {
+		return
+	}
+
+	// Build RBAC-filtered history for this client
+	filtered := make([]*types.Snapshot, 0, len(h.snapshotHistory))
+	for _, snap := range h.snapshotHistory {
+		filtered = append(filtered, client.FilterSnapshot(snap))
+	}
+
+	msg := struct {
+		Type      string            `json:"type"`
+		Snapshots []*types.Snapshot `json:"snapshots"`
+	}{
+		Type:      "snapshot_history",
+		Snapshots: filtered,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to marshal snapshot history")
+		return
+	}
+
+	select {
+	case client.send <- data:
+		h.logger.Info().
+			Str("client_id", client.id).
+			Int("history_size", len(filtered)).
+			Msg("sent snapshot history to client")
+	default:
+		h.logger.Warn().
+			Str("client_id", client.id).
+			Msg("client send buffer full, skipping history")
 	}
 }
 
