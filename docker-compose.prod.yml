@@ -1,4 +1,4 @@
-# Production Docker Compose
+# Production Docker Compose for MONTI
 # Uses environment variables from .env file
 # Backend and AgentSim images pulled from ECR
 

@@ -78,4 +78,4 @@ jobs:
             echo "=== Container Status ==="
             docker compose ps
             echo "=== Health Check ==="
-            wget -q --spider http://localhost:8080/health && echo "Backend healthy" || echo "WARNING: Backend health check failed"
+            curl -sf http://localhost:8080/health > /dev/null && echo "Backend healthy" || echo "WARNING: Backend health check failed"
