@@ -106,6 +106,7 @@ export const Dashboard = () => {
 
   const incomingSnapshot = useMemo(() => {
     if (!data) return null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const message = data as any
     return message.type === 'snapshot' ? (message as Snapshot) : null
   }, [data])
@@ -126,6 +127,7 @@ export const Dashboard = () => {
   // Handle snapshot_history messages from the server
   const handleSnapshotHistory = useCallback(() => {
     if (!data) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const message = data as any
     if (message.type === 'snapshot_history') {
       const historyMsg = message as SnapshotHistory
@@ -143,7 +145,7 @@ export const Dashboard = () => {
   const [visibleError, setVisibleError] = useState<string | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
   // State filter (can be set programmatically, no UI yet)
-  const [selectedState, _setSelectedState] = useState<AgentState | null>(null)
+  const [selectedState] = useState<AgentState | null>(null)
   const [selectedView, setSelectedView] = useState<'all' | Department>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showOffline, setShowOffline] = useState(false)
@@ -203,6 +205,7 @@ export const Dashboard = () => {
       result[dept] = { agents, queues: data.queues || [] }
     }
     return result as Record<Department, { agents: AgentInfo[]; queues: VQSnapshot[] }>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displaySnapshot, selectedCity, selectedState, searchQuery])
 
   const hasData = displaySnapshot !== null

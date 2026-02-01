@@ -52,7 +52,7 @@ export const WidgetDisplay = ({ widget, onAgentClick, selectedState, onStateFilt
   const totalCount = agents.length
 
   const sortedStates = Object.entries(widget.summary.stateBreakdown)
-    .filter(([_, count]) => count > 0)
+    .filter(([, count]) => count > 0)
     .sort(([, a], [, b]) => b - a)
 
   return (
