@@ -49,5 +49,20 @@ class MockWebSocket {
 // @ts-expect-error MockWebSocket is a partial implementation for tests
 global.WebSocket = MockWebSocket
 
+// Mock window.matchMedia for jsdom (used by ThemeProvider)
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+})
+
 // Extend expect with custom matchers
 expect.extend({})
