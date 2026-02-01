@@ -3,10 +3,14 @@ name: AgentSim
 on:
   push:
     branches: [main]
-    paths: [AgentSim/**]
+    paths:
+      - AgentSim/**
+      - .github/workflows/agentsim.yml
   pull_request:
     branches: [main]
-    paths: [AgentSim/**]
+    paths:
+      - AgentSim/**
+      - .github/workflows/agentsim.yml
 
 jobs:
   test:
@@ -62,10 +66,12 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          command_timeout: 5m
           script: |
             cd /home/ec2-user/monti
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
             docker compose pull agentsim
+            docker compose stop -t 5 agentsim || true
             docker compose up -d
             docker image prune -f
             sleep 10

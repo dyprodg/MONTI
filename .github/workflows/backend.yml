@@ -3,10 +3,14 @@ name: Backend
 on:
   push:
     branches: [main]
-    paths: [Backend/**]
+    paths:
+      - Backend/**
+      - .github/workflows/backend.yml
   pull_request:
     branches: [main]
-    paths: [Backend/**]
+    paths:
+      - Backend/**
+      - .github/workflows/backend.yml
 
 jobs:
   test:
@@ -62,14 +66,16 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          command_timeout: 5m
           script: |
             cd /home/ec2-user/monti
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
             docker compose pull backend
+            docker compose stop -t 5 backend || true
             docker compose up -d
             docker image prune -f
             sleep 10
             echo "=== Container Status ==="
             docker compose ps
             echo "=== Health Check ==="
-            docker compose ps --format json | grep -q '"Health":"healthy"' || wget -q --spider http://localhost:8080/health && echo "Backend healthy" || echo "WARNING: Backend health check failed"
+            wget -q --spider http://localhost:8080/health && echo "Backend healthy" || echo "WARNING: Backend health check failed"
