@@ -93,7 +93,6 @@ export function useSnapshotBuffer(incoming: Snapshot | null, maxSize = DEFAULT_M
     goLive,
     scrubTo,
     seedHistory,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _renderTick: renderTick,
   }
 }
