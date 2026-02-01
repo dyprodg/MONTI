@@ -32,7 +32,7 @@ class MockWebSocket {
     }, 0)
   }
 
-  send(_data: string) {
+  send() {
     if (this.readyState !== MockWebSocket.OPEN) {
       throw new Error('WebSocket is not open')
     }
@@ -46,8 +46,23 @@ class MockWebSocket {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error MockWebSocket is a partial implementation for tests
 global.WebSocket = MockWebSocket
+
+// Mock window.matchMedia for jsdom (used by ThemeProvider)
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+})
 
 // Extend expect with custom matchers
 expect.extend({})
