@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <script>
+    // Pass the authorization response back to the parent window
+    // oidc-client-ts will pick this up via postMessage
+    window.parent.postMessage(window.location.href, window.location.origin)
+  </script>
+</body>
+</html>

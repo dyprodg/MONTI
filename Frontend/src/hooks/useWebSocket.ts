@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { getWebSocketService } from '../services/websocket'
+import { WebSocketService } from '../services/websocket'
 import { ConnectionState, TimeMessage, WebSocketError } from '../types'
 import { authService } from '../services/auth'
 
@@ -20,51 +20,16 @@ export const useWebSocket = (url: string, options: UseWebSocketOptions = {}): Us
   const [data, setData] = useState<TimeMessage | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.CLOSED)
   const [error, setError] = useState<WebSocketError | null>(null)
-  const wsServiceRef = useRef<ReturnType<typeof getWebSocketService> | null>(null)
-  const [wsInitialized, setWsInitialized] = useState(false)
+  const wsServiceRef = useRef<WebSocketService | null>(null)
 
-  // Initialize WebSocket service with auth token - only when enabled
+  // Initialize WebSocket service and connect when enabled
   useEffect(() => {
     if (!enabled) {
       return
     }
 
-    const initWebSocket = async () => {
-      const token = await authService.getToken()
-      if (!token) {
-        // Don't initialize WebSocket without a valid token
-        console.debug('[WebSocket] Skipping init - no token available')
-        return
-      }
-      const wsUrl = `${url}?token=${encodeURIComponent(token)}`
-      console.debug('[WebSocket] Initializing with token')
-      wsServiceRef.current = getWebSocketService(wsUrl)
-      setWsInitialized(true)
-    }
-
-    initWebSocket()
-  }, [url, enabled])
-
-  // Connect function
-  const connect = useCallback(() => {
-    if (wsServiceRef.current) {
-      wsServiceRef.current.connect()
-    }
-  }, [])
-
-  // Disconnect function
-  const disconnect = useCallback(() => {
-    if (wsServiceRef.current) {
-      wsServiceRef.current.disconnect()
-    }
-  }, [])
-
-  // Set up event listeners - only run after WebSocket is initialized
-  useEffect(() => {
-    if (!wsInitialized) return
-
-    const ws = wsServiceRef.current
-    if (!ws) return
+    const ws = new WebSocketService(url, () => authService.getToken())
+    wsServiceRef.current = ws
 
     // Message handler
     const unsubscribeMessage = ws.onMessage((message) => {
@@ -74,7 +39,6 @@ export const useWebSocket = (url: string, options: UseWebSocketOptions = {}): Us
     // State change handler
     const unsubscribeState = ws.onStateChange((state) => {
       setConnectionState(state)
-      // Clear error when connection is successful
       if (state === ConnectionState.OPEN) {
         setError(null)
       }
@@ -85,17 +49,28 @@ export const useWebSocket = (url: string, options: UseWebSocketOptions = {}): Us
       setError(err)
     })
 
-    // Auto-connect
-    connect()
+    // Connect
+    ws.connect()
 
     // Cleanup
     return () => {
       unsubscribeMessage()
       unsubscribeState()
       unsubscribeError()
-      disconnect()
+      ws.disconnect()
+      wsServiceRef.current = null
     }
-  }, [wsInitialized, connect, disconnect])
+  }, [url, enabled])
+
+  // Connect function
+  const connect = useCallback(() => {
+    wsServiceRef.current?.connect()
+  }, [])
+
+  // Disconnect function
+  const disconnect = useCallback(() => {
+    wsServiceRef.current?.disconnect()
+  }, [])
 
   return {
     data,

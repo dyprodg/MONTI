@@ -10,7 +10,8 @@ const BACKOFF_MULTIPLIER = 1.5
 
 export class WebSocketService {
   private ws: WebSocket | null = null
-  private url: string
+  private baseUrl: string
+  private getToken: () => Promise<string | null>
   private messageHandlers: Set<MessageHandler> = new Set()
   private stateChangeHandlers: Set<StateChangeHandler> = new Set()
   private errorHandlers: Set<ErrorHandler> = new Set()
@@ -19,11 +20,12 @@ export class WebSocketService {
   private reconnectTimeout: number | null = null
   private shouldReconnect = true
 
-  constructor(url: string) {
-    this.url = url
+  constructor(baseUrl: string, getToken: () => Promise<string | null>) {
+    this.baseUrl = baseUrl
+    this.getToken = getToken
   }
 
-  connect(): void {
+  async connect(): Promise<void> {
     if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
       return
     }
@@ -33,7 +35,15 @@ export class WebSocketService {
     this.updateState(ConnectionState.CONNECTING)
 
     try {
-      this.ws = new WebSocket(this.url)
+      const token = await this.getToken()
+      if (!token) {
+        console.debug('[WebSocket] No token available, scheduling retry')
+        this.scheduleReconnect()
+        return
+      }
+
+      const wsUrl = `${this.baseUrl}?token=${encodeURIComponent(token)}`
+      this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0
@@ -144,17 +154,4 @@ export class WebSocketService {
       this.reconnectTimeout = null
     }
   }
-}
-
-// Singleton instance
-let instance: WebSocketService | null = null
-
-export const getWebSocketService = (url?: string): WebSocketService => {
-  if (!instance && url) {
-    instance = new WebSocketService(url)
-  }
-  if (!instance) {
-    throw new Error('WebSocketService not initialized. Provide URL on first call.')
-  }
-  return instance
 }

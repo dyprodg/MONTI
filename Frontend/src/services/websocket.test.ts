@@ -6,7 +6,7 @@ describe('WebSocketService', () => {
   let ws: WebSocketService
 
   beforeEach(() => {
-    ws = new WebSocketService('ws://localhost:8080/ws')
+    ws = new WebSocketService('ws://localhost:8080/ws', async () => 'test-token')
   })
 
   it('should initialize with CLOSED state', () => {
