@@ -7,6 +7,14 @@ import (
 	"github.com/dennisdiepolder/monti/backend/internal/types"
 )
 
+// allDepartments is the fixed list of departments for snapshot building
+var allDepartments = []types.Department{
+	types.DeptSales,
+	types.DeptSupport,
+	types.DeptTechnical,
+	types.DeptRetention,
+}
+
 const (
 	// StaleThreshold is the duration after which an agent is considered stale (3 missed heartbeats)
 	StaleThreshold = 6 * time.Second
@@ -284,6 +292,42 @@ func (t *AgentStateTracker) GetAvailableByDepartment(dept types.Department) []ty
 		}
 	}
 	return states
+}
+
+// BuildSnapshot builds a snapshot and returns connected agents in a single pass under one read lock.
+// This avoids multiple lock acquisitions and redundant slice copies per aggregation cycle.
+func (t *AgentStateTracker) BuildSnapshot(vqSnapshots map[types.Department][]types.VQSnapshot) (types.Snapshot, []types.AgentInfo) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	departments := make(map[types.Department]*types.DepartmentData, 4)
+	for _, dept := range allDepartments {
+		departments[dept] = &types.DepartmentData{
+			Agents: []types.AgentInfo{},
+			Queues: vqSnapshots[dept],
+		}
+		if departments[dept].Queues == nil {
+			departments[dept].Queues = []types.VQSnapshot{}
+		}
+	}
+
+	connected := make([]types.AgentInfo, 0, len(t.agents))
+
+	for _, agent := range t.agents {
+		a := *agent
+		departments[a.Department].Agents = append(departments[a.Department].Agents, a)
+		if a.ConnectionStatus == types.StatusConnected {
+			connected = append(connected, a)
+		}
+	}
+
+	snapshot := types.Snapshot{
+		Type:        "snapshot",
+		Timestamp:   time.Now(),
+		Departments: departments,
+	}
+
+	return snapshot, connected
 }
 
 // Clear removes all agents from the tracker, returning the count of agents cleared

@@ -100,13 +100,18 @@ jobs:
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
             cp docker-compose.prod.yml docker-compose.yml
             docker compose pull backend
-            docker compose down --timeout 10
             docker compose up -d
             docker image prune -f
-            sleep 30
+            echo "Waiting for backend to become healthy..."
+            for i in $(seq 1 10); do
+              if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+                echo "Backend healthy after ${i}s"
+                break
+              fi
+              [ "$i" -eq 10 ] && echo "WARNING: Backend health check failed after 10s"
+              sleep 1
+            done
             echo "=== Container Status ==="
             docker compose ps
-            echo "=== Health Check ==="
-            curl -sf http://localhost:8080/health && echo "" || echo "WARNING: Backend health check failed"
             echo "=== Backend Logs (last 30 lines) ==="
             docker compose logs --tail 30 backend
