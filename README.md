@@ -74,11 +74,9 @@ Grafana: http://localhost:3001 (admin / admin)
 
 ## Documentation
 
-- [Frontend](docs/FRONTEND.md) -- React app, build, deploy to S3
-- [Backend](docs/BACKEND.md) -- Go server, API routes, WebSocket protocol
-- [AgentSim](docs/AGENTSIM.md) -- Simulator, control API, config
 - [Infrastructure](docs/INFRASTRUCTURE.md) -- Terraform, EC2, CloudFront, Caddy, deployment
 - [Auth](docs/AUTH.md) -- Keycloak, OIDC, roles, groups
+- [Monitoring](docs/monitoring.md) -- Prometheus, Grafana access
 
 ## Common Commands
 

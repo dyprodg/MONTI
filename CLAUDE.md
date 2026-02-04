@@ -35,3 +35,10 @@ Use `docker compose down` (without -v) to stop services safely.
 - AgentSim: Go agent simulator
 - Auth: Keycloak with OIDC
 - Monitoring: Prometheus + Grafana
+
+## Component Rules
+Detailed coding rules and guidelines for each component:
+- [Backend rules](.claude/BACKEND.md)
+- [Frontend rules](.claude/FRONTEND.md)
+- [AgentSim rules](.claude/AGENTSIM.md)
+- [AgentSim API reference](.claude/AGENTSIM-API.md)
