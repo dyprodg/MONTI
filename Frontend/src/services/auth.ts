@@ -33,6 +33,7 @@ class AuthService {
       userStore: new WebStorageStateStore({ store: window.localStorage }),
       automaticSilentRenew: true,
       silent_redirect_uri: `${window.location.origin}/silent-renew.html`,
+      monitorSession: false,
     }
 
     this.userManager = new UserManager(config)
