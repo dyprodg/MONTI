@@ -2,9 +2,11 @@ package websocket
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/dennisdiepolder/monti/backend/internal/types"
 	"github.com/rs/zerolog"
 )
 
@@ -156,5 +158,109 @@ func TestHubBroadcastToMultipleClients(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("client2 did not receive message")
+	}
+}
+
+func makeSnapshot(id int) *types.Snapshot {
+	return &types.Snapshot{
+		Type:      "snapshot",
+		Timestamp: time.Now(),
+		Departments: map[types.Department]*types.DepartmentData{
+			types.DeptSales: {
+				Agents: []types.AgentInfo{{AgentID: fmt.Sprintf("agent-%d", id)}},
+			},
+		},
+	}
+}
+
+func TestAppendSnapshotHistory_FillsUpToMax(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := NewHub(logger)
+
+	for i := 0; i < maxSnapshotHistory; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(i))
+	}
+
+	if len(hub.snapshotHistory) != maxSnapshotHistory {
+		t.Errorf("expected %d snapshots, got %d", maxSnapshotHistory, len(hub.snapshotHistory))
+	}
+
+	// First snapshot should be agent-0
+	first := hub.snapshotHistory[0].Departments[types.DeptSales].Agents[0].AgentID
+	if first != "agent-0" {
+		t.Errorf("expected first snapshot agent-0, got %s", first)
+	}
+}
+
+func TestAppendSnapshotHistory_EvictsOldest(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := NewHub(logger)
+
+	// Fill buffer
+	for i := 0; i < maxSnapshotHistory; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(i))
+	}
+
+	// Add 50 more — should evict the oldest 50
+	for i := maxSnapshotHistory; i < maxSnapshotHistory+50; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(i))
+	}
+
+	if len(hub.snapshotHistory) != maxSnapshotHistory {
+		t.Errorf("expected %d snapshots, got %d", maxSnapshotHistory, len(hub.snapshotHistory))
+	}
+
+	// Oldest should now be agent-50
+	first := hub.snapshotHistory[0].Departments[types.DeptSales].Agents[0].AgentID
+	if first != "agent-50" {
+		t.Errorf("expected oldest snapshot agent-50, got %s", first)
+	}
+
+	// Newest should be agent-349
+	last := hub.snapshotHistory[maxSnapshotHistory-1].Departments[types.DeptSales].Agents[0].AgentID
+	if last != "agent-349" {
+		t.Errorf("expected newest snapshot agent-349, got %s", last)
+	}
+}
+
+func TestAppendSnapshotHistory_OrderPreserved(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := NewHub(logger)
+
+	// Overfill by 2x to exercise the copy path many times
+	total := maxSnapshotHistory * 2
+	for i := 0; i < total; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(i))
+	}
+
+	// Verify all 300 entries are in order
+	for i := 0; i < maxSnapshotHistory; i++ {
+		expected := fmt.Sprintf("agent-%d", total-maxSnapshotHistory+i)
+		got := hub.snapshotHistory[i].Departments[types.DeptSales].Agents[0].AgentID
+		if got != expected {
+			t.Errorf("index %d: expected %s, got %s", i, expected, got)
+		}
+	}
+}
+
+func TestAppendSnapshotHistory_BackingArrayStaysFixed(t *testing.T) {
+	logger := zerolog.New(&bytes.Buffer{})
+	hub := NewHub(logger)
+
+	// Fill to capacity
+	for i := 0; i < maxSnapshotHistory; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(i))
+	}
+
+	capBefore := cap(hub.snapshotHistory)
+
+	// Add 500 more — backing array should never grow
+	for i := 0; i < 500; i++ {
+		hub.appendSnapshotHistory(makeSnapshot(maxSnapshotHistory + i))
+	}
+
+	capAfter := cap(hub.snapshotHistory)
+	if capAfter != capBefore {
+		t.Errorf("backing array grew: cap before=%d, after=%d", capBefore, capAfter)
 	}
 }
