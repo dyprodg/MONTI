@@ -38,11 +38,12 @@ type Hub struct {
 // NewHub creates a new Hub
 func NewHub(logger zerolog.Logger) *Hub {
 	return &Hub{
-		broadcast:  make(chan []byte, 256),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		clients:    make(map[*Client]bool),
-		logger:     logger,
+		broadcast:       make(chan []byte, 256),
+		register:        make(chan *Client),
+		unregister:      make(chan *Client),
+		clients:         make(map[*Client]bool),
+		snapshotHistory: make([]*types.Snapshot, 0, maxSnapshotHistory),
+		logger:          logger,
 	}
 }
 
@@ -141,11 +142,14 @@ func (h *Hub) broadcastRaw(message []byte) {
 
 // appendSnapshotHistory adds a snapshot to the ring buffer, evicting the oldest if full
 func (h *Hub) appendSnapshotHistory(snapshot *types.Snapshot) {
-	if len(h.snapshotHistory) >= maxSnapshotHistory {
-		// Evict oldest
-		h.snapshotHistory = h.snapshotHistory[1:]
+	if len(h.snapshotHistory) < maxSnapshotHistory {
+		h.snapshotHistory = append(h.snapshotHistory, snapshot)
+		return
 	}
-	h.snapshotHistory = append(h.snapshotHistory, snapshot)
+	// Shift left and overwrite last slot — avoids re-slicing which leaks
+	// old pointers in the backing array and prevents GC from collecting them
+	copy(h.snapshotHistory, h.snapshotHistory[1:])
+	h.snapshotHistory[maxSnapshotHistory-1] = snapshot
 }
 
 // sendSnapshotHistory sends the buffered snapshot history to a newly connected client
