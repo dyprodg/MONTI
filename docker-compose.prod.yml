@@ -81,7 +81,7 @@ services:
       - "8081:8081"
     environment:
       - AGENTSIM_BACKEND_URL=http://backend:8080
-      - AGENTSIM_AGENTS=2000
+      - AGENTSIM_AGENTS=1000
       - AGENTSIM_AUTO_START=true
       - AGENTSIM_ACTIVE_AGENTS=100
       - AGENTSIM_CONTROL_PORT=8081

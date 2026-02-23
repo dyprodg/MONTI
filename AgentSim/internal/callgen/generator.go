@@ -34,7 +34,7 @@ type CallGenerator struct {
 // NewCallGenerator creates a CallGenerator with default department configs.
 func NewCallGenerator(client *CallAPIClient) *CallGenerator {
 	g := &CallGenerator{
-		peakHourFactor: 1.0,
+		peakHourFactor: 1.8,
 		client:         client,
 		departments:    defaultDepartments(),
 	}
@@ -44,39 +44,39 @@ func NewCallGenerator(client *CallAPIClient) *CallGenerator {
 func defaultDepartments() map[types.Department]DepartmentConfig {
 	return map[types.Department]DepartmentConfig{
 		types.DeptSales: {
-			CallsPerMin: 40,
+			CallsPerMin: 8, // ~2 per VQ
 			VQs: []VQWeight{
-				{VQ: types.VQSalesInbound, Weight: 4},
-				{VQ: types.VQSalesOutbound, Weight: 3},
-				{VQ: types.VQSalesCallback, Weight: 3},
-				{VQ: types.VQSalesChat, Weight: 3},
+				{VQ: types.VQSalesInbound, Weight: 1},
+				{VQ: types.VQSalesOutbound, Weight: 1},
+				{VQ: types.VQSalesCallback, Weight: 1},
+				{VQ: types.VQSalesChat, Weight: 1},
 			},
 		},
 		types.DeptSupport: {
-			CallsPerMin: 60,
+			CallsPerMin: 8, // ~2 per VQ
 			VQs: []VQWeight{
-				{VQ: types.VQSupportGeneral, Weight: 4},
-				{VQ: types.VQSupportBilling, Weight: 3},
-				{VQ: types.VQSupportCallback, Weight: 3},
-				{VQ: types.VQSupportChat, Weight: 3},
+				{VQ: types.VQSupportGeneral, Weight: 1},
+				{VQ: types.VQSupportBilling, Weight: 1},
+				{VQ: types.VQSupportCallback, Weight: 1},
+				{VQ: types.VQSupportChat, Weight: 1},
 			},
 		},
 		types.DeptTechnical: {
-			CallsPerMin: 30,
+			CallsPerMin: 8, // ~2 per VQ
 			VQs: []VQWeight{
-				{VQ: types.VQTechL1, Weight: 4},
-				{VQ: types.VQTechL2, Weight: 3},
-				{VQ: types.VQTechCallback, Weight: 3},
-				{VQ: types.VQTechChat, Weight: 3},
+				{VQ: types.VQTechL1, Weight: 1},
+				{VQ: types.VQTechL2, Weight: 1},
+				{VQ: types.VQTechCallback, Weight: 1},
+				{VQ: types.VQTechChat, Weight: 1},
 			},
 		},
 		types.DeptRetention: {
-			CallsPerMin: 20,
+			CallsPerMin: 8, // ~2 per VQ
 			VQs: []VQWeight{
-				{VQ: types.VQRetentionSave, Weight: 4},
-				{VQ: types.VQRetentionCancel, Weight: 3},
-				{VQ: types.VQRetentionCallback, Weight: 3},
-				{VQ: types.VQRetentionChat, Weight: 3},
+				{VQ: types.VQRetentionSave, Weight: 1},
+				{VQ: types.VQRetentionCancel, Weight: 1},
+				{VQ: types.VQRetentionCallback, Weight: 1},
+				{VQ: types.VQRetentionChat, Weight: 1},
 			},
 		},
 	}
