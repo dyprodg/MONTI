@@ -67,6 +67,22 @@ jobs:
           docker push ${{ vars.ECR_REGISTRY }}/monti-backend:latest
           docker push ${{ vars.ECR_REGISTRY }}/monti-backend:${{ github.sha }}
 
+      - name: Ensure EC2 is running
+        id: ec2-state
+        run: |
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids ${{ vars.EC2_INSTANCE_ID }} \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+          echo "state=$STATE" >> $GITHUB_OUTPUT
+          if [[ "$STATE" != "running" ]]; then
+            echo "EC2 is $STATE, starting..."
+            aws ec2 start-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+            aws ec2 wait instance-running --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+            echo "EC2 running, waiting for SSH readiness..."
+            sleep 30
+          fi
+
       - name: Prepare EC2 directories
         uses: appleboy/ssh-action@v1
         with:
@@ -115,3 +131,55 @@ jobs:
             docker compose ps
             echo "=== Backend Logs (last 30 lines) ==="
             docker compose logs --tail 30 backend
+
+      - name: Install boot service
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            # Boot script: auto-pull latest images on EC2 start
+            cat > /tmp/monti-boot.sh << 'BOOT'
+            #!/bin/bash
+            set -e
+            exec >> /var/log/monti-boot.log 2>&1
+            echo "$(date): MONTI boot - pulling latest images"
+            cd /home/ec2-user/monti
+            source .env
+            REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+            aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            docker compose pull
+            docker compose up -d
+            docker image prune -f
+            echo "$(date): MONTI boot complete"
+            BOOT
+            sudo mv /tmp/monti-boot.sh /usr/local/bin/monti-boot.sh
+            sudo chmod +x /usr/local/bin/monti-boot.sh
+
+            cat > /tmp/monti-boot.service << 'SVC'
+            [Unit]
+            Description=MONTI Boot - Pull latest images and start containers
+            After=docker.service network-online.target
+            Wants=network-online.target
+            Requires=docker.service
+
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/monti-boot.sh
+            RemainAfterExit=true
+            User=root
+            Environment=HOME=/home/ec2-user
+
+            [Install]
+            WantedBy=multi-user.target
+            SVC
+            sudo mv /tmp/monti-boot.service /etc/systemd/system/monti-boot.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable monti-boot.service
+
+      - name: Stop EC2 if it was stopped
+        if: steps.ec2-state.outputs.state != 'running'
+        run: |
+          echo "EC2 was ${{ steps.ec2-state.outputs.state }} before deploy, stopping..."
+          aws ec2 stop-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}

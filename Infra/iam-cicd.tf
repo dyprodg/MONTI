@@ -73,6 +73,36 @@ resource "aws_iam_user_policy" "s3_policy" {
   })
 }
 
+# Policy for EC2 start/stop (CI/CD deploys when instance is stopped)
+resource "aws_iam_user_policy" "ec2_policy" {
+  name = "${var.project_name}-cicd-ec2"
+  user = aws_iam_user.github_actions.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EC2Describe"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2StartStop"
+        Effect = "Allow"
+        Action = [
+          "ec2:StartInstances",
+          "ec2:StopInstances"
+        ]
+        Resource = aws_instance.backend.arn
+      }
+    ]
+  })
+}
+
 # Policy for CloudFront invalidation
 resource "aws_iam_user_policy" "cloudfront_policy" {
   name = "${var.project_name}-cicd-cloudfront"

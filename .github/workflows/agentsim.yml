@@ -61,6 +61,22 @@ jobs:
           docker push ${{ vars.ECR_REGISTRY }}/monti-agentsim:latest
           docker push ${{ vars.ECR_REGISTRY }}/monti-agentsim:${{ github.sha }}
 
+      - name: Ensure EC2 is running
+        id: ec2-state
+        run: |
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids ${{ vars.EC2_INSTANCE_ID }} \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+          echo "state=$STATE" >> $GITHUB_OUTPUT
+          if [[ "$STATE" != "running" ]]; then
+            echo "EC2 is $STATE, starting..."
+            aws ec2 start-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+            aws ec2 wait instance-running --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+            echo "EC2 running, waiting for SSH readiness..."
+            sleep 30
+          fi
+
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1
         with:
@@ -78,3 +94,9 @@ jobs:
             sleep 10
             echo "=== Container Status ==="
             docker compose ps
+
+      - name: Stop EC2 if it was stopped
+        if: steps.ec2-state.outputs.state != 'running'
+        run: |
+          echo "EC2 was ${{ steps.ec2-state.outputs.state }} before deploy, stopping..."
+          aws ec2 stop-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}
