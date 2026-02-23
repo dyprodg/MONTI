@@ -1,4 +1,4 @@
-# Lambda function to clear DynamoDB tables nightly at 02:00 UTC
+# Lambda function to clear DynamoDB tables after simulation window (16:15 Berlin, weekdays)
 
 data "archive_file" "dynamo_cleanup" {
   type        = "zip"
@@ -79,11 +79,11 @@ resource "aws_lambda_function" "dynamo_cleanup" {
   }
 }
 
-# EventBridge rule - 02:00 UTC every night
+# EventBridge rule - 15:15 UTC weekdays = 16:15 CET / 17:15 CEST (after EC2 stops at 16:05 Berlin)
 resource "aws_cloudwatch_event_rule" "nightly_dynamo_cleanup" {
   name                = "${var.project_name}-nightly-dynamo-cleanup"
-  description         = "Clear DynamoDB tables at 02:00 UTC daily"
-  schedule_expression = "cron(0 2 * * ? *)"
+  description         = "Clear DynamoDB tables after simulation window (Mon-Fri)"
+  schedule_expression = "cron(15 15 ? * MON-FRI *)"
 
   tags = {
     Name = "${var.project_name}-nightly-dynamo-cleanup"
