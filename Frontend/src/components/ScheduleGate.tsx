@@ -6,8 +6,8 @@ const SCHEDULE = {
   startHour: 14,
   endHour: 16,
   timezone: 'Europe/Berlin',
-  days: [1, 2, 3, 4, 5], // Mon-Fri
-} as const
+  days: [1, 2, 3, 4, 5] as number[], // Mon-Fri
+}
 
 function getBerlinTime(): Date {
   return new Date(new Date().toLocaleString('en-US', { timeZone: SCHEDULE.timezone }))
