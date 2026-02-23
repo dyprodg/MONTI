@@ -1,42 +1,26 @@
-import { useState, useEffect, ReactNode } from 'react'
+import { useState, useEffect, useCallback, ReactNode } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { ThemeToggle } from './ThemeToggle'
 
-const SCHEDULE = {
-  startHour: 14,
-  endHour: 16,
-  timezone: 'Europe/Berlin',
-  days: [1, 2, 3, 4, 5] as number[], // Mon-Fri
-}
+const HEALTH_URL =
+  (import.meta.env.VITE_API_URL || 'http://localhost:8080/api').replace(/\/api\/?$/, '') + '/health'
+const CHECK_INTERVAL = 30_000
+const HEALTH_TIMEOUT = 5_000
 
-function getBerlinTime(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: SCHEDULE.timezone }))
-}
-
-function isWithinWindow(): boolean {
-  const now = getBerlinTime()
-  const day = now.getDay()
-  const hour = now.getHours()
-  const minutes = now.getMinutes()
-  const timeDecimal = hour + minutes / 60
-
-  return SCHEDULE.days.includes(day) && timeDecimal >= SCHEDULE.startHour && timeDecimal < SCHEDULE.endHour
-}
+const WEEKDAYS = [1, 2, 3, 4, 5]
 
 function getNextSessionText(): string {
-  const now = getBerlinTime()
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Berlin' }))
   const day = now.getDay()
   const hour = now.getHours()
 
-  // If it's a weekday and before the window, session is today
-  if (SCHEDULE.days.includes(day) && hour < SCHEDULE.startHour) {
+  if (WEEKDAYS.includes(day) && hour < 14) {
     return 'Today at 2:00 PM CET'
   }
 
-  // Otherwise, find the next weekday
   let daysUntil = 1
   let nextDay = (day + 1) % 7
-  while (!SCHEDULE.days.includes(nextDay)) {
+  while (!WEEKDAYS.includes(nextDay)) {
     daysUntil++
     nextDay = (nextDay + 1) % 7
   }
@@ -50,17 +34,57 @@ function getNextSessionText(): string {
 }
 
 export const ScheduleGate = ({ children }: { children: ReactNode }) => {
-  const [isOnline, setIsOnline] = useState(isWithinWindow)
+  const [serverUp, setServerUp] = useState<boolean | null>(null)
   const { colors } = useTheme()
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIsOnline(isWithinWindow())
-    }, 30_000)
-    return () => clearInterval(interval)
+  const checkHealth = useCallback(async () => {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT)
+      const res = await fetch(HEALTH_URL, { signal: controller.signal })
+      clearTimeout(timeout)
+      setServerUp(res.ok)
+    } catch {
+      setServerUp(false)
+    }
   }, [])
 
-  if (isOnline) {
+  useEffect(() => {
+    checkHealth()
+    const interval = setInterval(checkHealth, CHECK_INTERVAL)
+    return () => clearInterval(interval)
+  }, [checkHealth])
+
+  // Loading state — check in progress
+  if (serverUp === null) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: colors.background,
+        }}
+      >
+        <div
+          style={{
+            width: '48px',
+            height: '48px',
+            border: `4px solid ${colors.border}`,
+            borderTop: `4px solid ${colors.primary}`,
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }}
+        />
+        <style>
+          {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
+        </style>
+      </div>
+    )
+  }
+
+  if (serverUp) {
     return <>{children}</>
   }
 
