@@ -342,8 +342,14 @@ jobs:
             sudo systemctl daemon-reload
             sudo systemctl enable monti-boot.service
 
-      - name: Stop EC2 if it was stopped
-        if: steps.ec2-state.outputs.state != 'running'
+      - name: Stop EC2 if outside schedule window
         run: |
-          echo "EC2 was ${{ steps.ec2-state.outputs.state }} before deploy, stopping..."
-          aws ec2 stop-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+          BERLIN_HOUR=$(TZ=Europe/Berlin date +%H)
+          BERLIN_DOW=$(TZ=Europe/Berlin date +%u)  # 1=Mon, 7=Sun
+          echo "Berlin time: day=$BERLIN_DOW hour=$BERLIN_HOUR"
+          if [[ "$BERLIN_DOW" -ge 1 && "$BERLIN_DOW" -le 5 && "$BERLIN_HOUR" -ge 14 && "$BERLIN_HOUR" -lt 16 ]]; then
+            echo "Inside schedule window (Mon-Fri 14:00-16:00 Berlin), leaving EC2 running"
+          else
+            echo "Outside schedule window, stopping EC2..."
+            aws ec2 stop-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}
+          fi
