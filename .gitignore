@@ -21,3 +21,6 @@ coverage.out
 
 # Terraform build artifacts
 Infra/lambda/*.zip
+
+# Proposals
+proposal-swisscom.md
