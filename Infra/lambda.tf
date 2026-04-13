@@ -79,11 +79,11 @@ resource "aws_lambda_function" "dynamo_cleanup" {
   }
 }
 
-# EventBridge rule - 15:15 UTC weekdays = 16:15 CET / 17:15 CEST (after EC2 stops at 16:05 Berlin)
+# EventBridge rule - 14:15 UTC weekdays = 15:15 CET / 16:15 CEST (after EC2 stops at 15:05 Berlin)
 resource "aws_cloudwatch_event_rule" "nightly_dynamo_cleanup" {
   name                = "${var.project_name}-nightly-dynamo-cleanup"
   description         = "Clear DynamoDB tables after simulation window (Mon-Fri)"
-  schedule_expression = "cron(15 15 ? * MON-FRI *)"
+  schedule_expression = "cron(15 14 ? * MON-FRI *)"
 
   tags = {
     Name = "${var.project_name}-nightly-dynamo-cleanup"

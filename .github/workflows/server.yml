@@ -347,8 +347,8 @@ jobs:
           BERLIN_HOUR=$(TZ=Europe/Berlin date +%H)
           BERLIN_DOW=$(TZ=Europe/Berlin date +%u)  # 1=Mon, 7=Sun
           echo "Berlin time: day=$BERLIN_DOW hour=$BERLIN_HOUR"
-          if [[ "$BERLIN_DOW" -ge 1 && "$BERLIN_DOW" -le 5 && "$BERLIN_HOUR" -ge 14 && "$BERLIN_HOUR" -lt 16 ]]; then
-            echo "Inside schedule window (Mon-Fri 14:00-16:00 Berlin), leaving EC2 running"
+          if [[ "$BERLIN_DOW" -ge 1 && "$BERLIN_DOW" -le 5 && "$BERLIN_HOUR" -ge 12 && "$BERLIN_HOUR" -lt 15 ]]; then
+            echo "Inside schedule window (Mon-Fri 12:00-15:00 Berlin), leaving EC2 running"
           else
             echo "Outside schedule window, stopping EC2..."
             aws ec2 stop-instances --instance-ids ${{ vars.EC2_INSTANCE_ID }}

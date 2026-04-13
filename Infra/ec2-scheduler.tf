@@ -1,5 +1,5 @@
 # EventBridge Scheduler for EC2 start/stop
-# Runs the backend EC2 only during 14:00-16:00 Berlin time, weekdays
+# Runs the backend EC2 only during 12:00-15:00 Berlin time, weekdays
 
 # IAM role for EventBridge Scheduler
 resource "aws_iam_role" "ec2_scheduler" {
@@ -43,12 +43,12 @@ resource "aws_scheduler_schedule_group" "ec2" {
   name = "${var.project_name}-ec2-scheduler"
 }
 
-# Start EC2 at 13:45 Berlin time (15 min boot buffer before 14:00 window)
+# Start EC2 at 11:45 Berlin time (15 min boot buffer before 12:00 window)
 resource "aws_scheduler_schedule" "ec2_start" {
   name       = "${var.project_name}-ec2-start"
   group_name = aws_scheduler_schedule_group.ec2.name
 
-  schedule_expression          = "cron(45 13 ? * MON-FRI *)"
+  schedule_expression          = "cron(45 11 ? * MON-FRI *)"
   schedule_expression_timezone = "Europe/Berlin"
 
   flexible_time_window {
@@ -65,12 +65,12 @@ resource "aws_scheduler_schedule" "ec2_start" {
   }
 }
 
-# Stop EC2 at 16:05 Berlin time (5 min grace after 16:00 window closes)
+# Stop EC2 at 15:05 Berlin time (5 min grace after 15:00 window closes)
 resource "aws_scheduler_schedule" "ec2_stop" {
   name       = "${var.project_name}-ec2-stop"
   group_name = aws_scheduler_schedule_group.ec2.name
 
-  schedule_expression          = "cron(5 16 ? * MON-FRI *)"
+  schedule_expression          = "cron(5 15 ? * MON-FRI *)"
   schedule_expression_timezone = "Europe/Berlin"
 
   flexible_time_window {

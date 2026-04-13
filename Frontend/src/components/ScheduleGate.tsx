@@ -14,8 +14,8 @@ function getNextSessionText(): string {
   const day = now.getDay()
   const hour = now.getHours()
 
-  if (WEEKDAYS.includes(day) && hour < 14) {
-    return 'Today at 2:00 PM CET'
+  if (WEEKDAYS.includes(day) && hour < 12) {
+    return 'Today at 12:00 PM CET'
   }
 
   let daysUntil = 1
@@ -28,9 +28,9 @@ function getNextSessionText(): string {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
   if (daysUntil === 1) {
-    return `Tomorrow (${dayNames[nextDay]}) at 2:00 PM CET`
+    return `Tomorrow (${dayNames[nextDay]}) at 12:00 PM CET`
   }
-  return `${dayNames[nextDay]} at 2:00 PM CET`
+  return `${dayNames[nextDay]} at 12:00 PM CET`
 }
 
 export const ScheduleGate = ({ children }: { children: ReactNode }) => {
@@ -172,7 +172,7 @@ export const ScheduleGate = ({ children }: { children: ReactNode }) => {
           }}
         >
           Due to simulation costs and infrequent access, I decided to keep costs low. The simulation
-          runs automatically Monday to Friday, 2:00 PM – 4:00 PM (CET).
+          runs automatically Monday to Friday, 12:00 PM – 3:00 PM (CET).
         </p>
 
         <div
