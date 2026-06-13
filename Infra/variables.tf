@@ -51,3 +51,9 @@ variable "allowed_ssh_cidrs" {
   type        = list(string)
   default     = ["0.0.0.0/0"] # Restrict this in production!
 }
+
+variable "ec2_scheduler_enabled" {
+  description = "Enable weekday EC2 auto start/stop scheduler"
+  type        = bool
+  default     = false
+}

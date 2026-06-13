@@ -47,6 +47,7 @@ resource "aws_scheduler_schedule_group" "ec2" {
 resource "aws_scheduler_schedule" "ec2_start" {
   name       = "${var.project_name}-ec2-start"
   group_name = aws_scheduler_schedule_group.ec2.name
+  state      = var.ec2_scheduler_enabled ? "ENABLED" : "DISABLED"
 
   schedule_expression          = "cron(45 11 ? * MON-FRI *)"
   schedule_expression_timezone = "Europe/Berlin"
@@ -69,6 +70,7 @@ resource "aws_scheduler_schedule" "ec2_start" {
 resource "aws_scheduler_schedule" "ec2_stop" {
   name       = "${var.project_name}-ec2-stop"
   group_name = aws_scheduler_schedule_group.ec2.name
+  state      = var.ec2_scheduler_enabled ? "ENABLED" : "DISABLED"
 
   schedule_expression          = "cron(5 15 ? * MON-FRI *)"
   schedule_expression_timezone = "Europe/Berlin"
